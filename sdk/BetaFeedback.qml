@@ -35,7 +35,10 @@ Item {
 
   z: 100000
   anchors.fill: parent
-  visible: status !== null && status.status === "enrolled"
+  // Visible whenever the feedback plugin is installed (the opt-in dialog must be
+  // able to show); the logger and the bug button switch on only once enrolled.
+  visible: status !== null
+  readonly property bool enrolled: status !== null && status.status === "enrolled"
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string cli: home + "/.config/omarchy/plugins/fans.omarchy.beta-feedback/bin/omarchy-beta-feedback"
@@ -101,7 +104,7 @@ Item {
   MouseArea {
     anchors.fill: parent
     acceptedButtons: Qt.AllButtons
-    enabled: root.visible
+    enabled: root.enrolled
     onPressed: function(m) {
       var p = mapToItem(root.target, m.x, m.y)
       root.presses = root.presses.concat([{ t: Date.now(), b: m.button, at: root.describe(root.target, p.x, p.y) }]).slice(-10)
@@ -111,6 +114,7 @@ Item {
 
   Button {
     id: bug
+    visible: root.enrolled
     anchors { right: parent.right; bottom: parent.bottom }
     iconText: root.cornerGlyph
     text: ""
@@ -121,17 +125,17 @@ Item {
   function report() {
     var shot = root.stateDir + "/shots/" + root.pluginId + "-" + Date.now() + ".png"
     var trace = JSON.stringify(root.presses)
-    bug.visible = false
+    bug.opacity = 0
     var card = root.target && root.target.parent ? root.target.parent : root.target
     var started = card.grabToImage(function(result) {
-      bug.visible = true
+      bug.opacity = 1
       var ok = false
       try { ok = result.saveToFile(shot) } catch (e) { ok = false }
       Util.execArgv([root.cli, "report", "--plugin", root.pluginId, "--branch", root.branch,
                      "--shot", ok ? shot : "", "--context", trace])
     })
     if (!started) {
-      bug.visible = true
+      bug.opacity = 1
       Util.execArgv([root.cli, "report", "--plugin", root.pluginId, "--branch", root.branch, "--shot", "", "--context", trace])
     }
   }

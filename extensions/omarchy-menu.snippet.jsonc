@@ -1,0 +1,10 @@
+  // Beta Feedback (fans.omarchy.beta-feedback)
+  "beta-feedback": {
+    "label": "Beta feedback",
+    "icon": "󰃤",
+    "items": {
+      "beta-feedback.panel":  { "label": "My beta enrollments", "exec": "omarchy-shell shell toggle fans.omarchy.beta-feedback" },
+      "beta-feedback.poll":   { "label": "Check for fixes now", "exec": "omarchy-beta-feedback poll" },
+      "beta-feedback.inbox":  { "label": "Author inbox", "exec": "omarchy-launch-tui --app-id=TUI.float omarchy-beta-feedback author inbox" }
+    }
+  },

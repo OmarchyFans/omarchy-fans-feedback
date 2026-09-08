@@ -1,0 +1,2 @@
+#!/bin/bash
+printf 'notify %s\n' "$*" >>"$BF_TEST_LOG"

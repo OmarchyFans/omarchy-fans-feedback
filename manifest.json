@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "fans.omarchy.beta-feedback",
+  "name": "Beta Feedback",
+  "version": "0.1.0",
+  "author": "modpunk (omarchy.fans)",
+  "license": "MIT",
+  "description": "Beta program for Omarchy plugins: end users opt in, get a bug button inside enrolled plugins, and file reports carrying the last 10 clicks, a panel-only screenshot they annotate, and version info. Reports become GitHub issues on the plugin's repo; authors triage them, let an agent fix them on a staging branch, and testers get an update-ready notification.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Beta Feedback",
+    "description": "Bug chip: your beta enrollments, your reports and their status, and update-now buttons when a fix is ready.",
+    "category": "Developer Tools",
+    "aliases": [
+      "beta-feedback",
+      "bugs"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

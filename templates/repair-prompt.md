@@ -5,7 +5,7 @@ fix branch based on the beta branch. Work only inside this directory.
 
 ## Task
 Fix issue #{{ISSUE}}: "{{TITLE}}". Find the root cause in the plugin's QML or
-bash, make the smallest change that fixes it, and add or extend a test when the
+bash, apply the smallest change that fixes it, and add or extend a test when the
 repo has a test suite. Do not change the manifest version. Do not push, open
 PRs, or touch anything outside this worktree; the tool that started you will
 commit, push, and open the PR.

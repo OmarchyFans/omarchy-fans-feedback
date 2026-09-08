@@ -126,7 +126,7 @@ Panel {
               width: column.width
               spacing: Style.space(4)
 
-              PanelSectionHeader { width: parent.width; title: modelData.plugin }
+              PanelSectionHeader { width: parent.width; text: modelData.plugin }
               Text {
                 width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
                 color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption

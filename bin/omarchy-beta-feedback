@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# omarchy-beta-feedback — a beta program for Omarchy plugins.
+#
+# End users (called by the vendored BetaFeedback.qml and the bar panel):
+#   omarchy-beta-feedback status <pluginId> [--json]   enrollment + update state (advances the days-used clock)
+#   omarchy-beta-feedback enroll <pluginId>            opt in (expires after 5 days of use)
+#   omarchy-beta-feedback unenroll <pluginId>          opt out (or --declined: never ask again)
+#   omarchy-beta-feedback report --plugin ID [--shot PNG] [--context JSON] [--branch B]
+#                                                      build + submit a report (opens a floating form)
+#   omarchy-beta-feedback poll [--all]                 check GitHub for fixes/releases, notify
+#   omarchy-beta-feedback update <pluginId> --channel beta|stable   switch the plugin clone's branch
+#   omarchy-beta-feedback confirm <pluginId> <issue> --works|--broken   tell the author how the beta went
+#   omarchy-beta-feedback list | info --json           enrollments and reports
+#
+# Authors (your own plugins' repos):
+#   omarchy-beta-feedback author init [repo-dir]       vendor the SDK, add .beta-feedback.json, labels, staging
+#   omarchy-beta-feedback author inbox [--json]        triage queue (approve / reject / repair / promote)
+#   omarchy-beta-feedback author sync                  refresh the queue from GitHub
+#   omarchy-beta-feedback author repair <repo> <issue> [--agent claude|hermes|custom] [--merge]
+#   omarchy-beta-feedback author fixed <repo> <issue>       mark a merged fix as ready on the beta branch
+#   omarchy-beta-feedback author promote <repo> [issue...] [--merge] [--bump patch]   PR staging -> main, mark released
+#
+# Flags: --dry-run   print side-effecting commands instead of running them
+#        --json      machine output where supported
+set -uo pipefail
+
+BF_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+BF_ROOT="$(cd -- "$(dirname -- "$BF_SELF")/.." && pwd)"
+BF_LIB="$BF_ROOT/lib"
+BF_VERSION=$(jq -r .version "$BF_ROOT/manifest.json" 2>/dev/null || echo dev)
+
+source "$BF_LIB/common.sh"
+source "$BF_LIB/state.sh"
+source "$BF_LIB/github.sh"
+source "$BF_LIB/report.sh"
+source "$BF_LIB/update.sh"
+source "$BF_LIB/author.sh"
+source "$BF_LIB/agent.sh"
+# shellcheck source=/dev/null
+[[ -n ${BF_UI_STUBS:-} ]] && source "$BF_UI_STUBS"
+
+JSON=0 ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --dry-run) BF_DRY_RUN=1 ;;
+    --json)    JSON=1 ;;
+    -h|--help) sed -n '3,25p' "$BF_SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --version) echo "omarchy-beta-feedback $BF_VERSION"; exit 0 ;;
+    *)         ARGS+=("$a") ;;
+  esac
+done
+export BF_DRY_RUN
+set -- "${ARGS[@]}"
+
+if [[ ${BF_POPUP:-0} == 1 ]]; then
+  fail() { warn "$*"; hr; read -rp "Press Enter to close…" _; exit 1; }
+fi
+
+cmd=${1:-help}; shift || true
+case "$cmd" in
+  status)   cmd_status "${1:-}" ;;
+  enroll)   cmd_enroll "${1:-}" ;;
+  unenroll) cmd_unenroll "${1:-}" "${2:-}" ;;
+  report)   cmd_report "$@" ;;
+  poll)     cmd_poll "$@" ;;
+  update)   cmd_update "$@" ;;
+  confirm)  cmd_confirm "$@" ;;
+  list)     cmd_list ;;
+  info)     cmd_info ;;
+  author)
+    sub=${1:-inbox}; shift || true
+    case "$sub" in
+      init)    author_init "$@" ;;
+      inbox)   author_inbox "$@" ;;
+      sync)    author_sync "$@" ;;
+      repair)  author_repair "$@" ;;
+      promote) author_promote "$@" ;;
+      approve|reject) author_mark "$sub" "$@" ;;
+      fixed)   author_mark_fixed "$@" ;;
+      *) fail "unknown author command '$sub' (init|inbox|sync|repair|promote|approve|reject)" ;;
+    esac ;;
+  help|"") sed -n '3,25p' "$BF_SELF" | sed 's/^# \{0,1\}//' ;;
+  *) fail "unknown command '$cmd' (try --help)" ;;
+esac

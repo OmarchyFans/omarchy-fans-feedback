@@ -1,0 +1,10 @@
+#!/bin/bash
+printf 'gh %s\n' "$*" >>"$BF_TEST_LOG"
+case "$1 $2" in
+  "auth status") [[ -n ${BF_GH_NOAUTH:-} ]] && exit 1; exit 0 ;;
+  "issue create") echo "https://github.com/${4}/issues/${BF_GH_NEXT_ISSUE:-42}" ;;
+  "api search/issues"*) cat "${BF_GH_SEARCH_FILE:-/dev/null}" 2>/dev/null || echo '{"items":[]}' ;;
+  "api repos/"*) case "$2" in *"/comments") cat "${BF_GH_COMMENTS_FILE:-/dev/null}" 2>/dev/null || echo '[]' ;; *) cat "${BF_GH_API_FILE:-/dev/null}" 2>/dev/null || echo '[]' ;; esac ;;
+  "pr create") echo "https://github.com/$4/pull/7" ;;
+  *) exit 0 ;;
+esac

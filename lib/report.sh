@@ -127,7 +127,7 @@ cmd_report() {
   esac
   if [[ $how == browser || $how == *"in the browser" ]]; then
     url=$(issue_new_url "$repo" "$title" "$b/body.md" "$BF_LABEL")
-    rec=$(jq -c '.status="browser"' <<<"$rec")
+    rec=$(jq -c --arg u "$url" '.status="browser" | .url=$u' <<<"$rec")
     run xdg-open "$url" >/dev/null 2>&1 &
     say "Opened a prefilled issue in your browser. Press 'Submit new issue' there."
   fi

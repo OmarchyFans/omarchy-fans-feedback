@@ -164,6 +164,77 @@ grep -q "gh pr create -R modpunk/test-plugin --base main --head staging" "$BF_TE
 grep -q "gh issue edit 42 -R modpunk/test-plugin --add-label released" "$BF_TEST_LOG" || tfail "released label"
 pass "author loop"
 
+echo "== keylog: the Lua chunks sent to hyprctl eval, under a mock hl"
+L="$T/lua"; mkdir -p "$L"
+python3 "$ROOT/lib/keylog.py" lua arm --raw "$L/raw" >"$L/arm.lua"
+python3 "$ROOT/lib/keylog.py" lua arm --raw "$L/raw" --all-keys >"$L/armall.lua"
+python3 "$ROOT/lib/keylog.py" lua disarm >"$L/disarm.lua"
+if command -v lua >/dev/null; then
+  lua "$ROOT/tests/keylog_lua_test.lua" "$L/arm.lua" "$L/armall.lua" "$L/disarm.lua" >/dev/null || tfail "lua chunk test"
+  expected=$'K ? 1 0\nK ? 0 0\nK 50 1 0\nK 113 1 0\nK 113 0 0\nK 50 0 0\nK 37 1 0\nK 54 1 0\nK 54 0 0\nK 37 0 0\nK 108 1 0\nK ? 1 0\nK ? 0 0\nK 108 0 0\nK 202 1 0\nS resize\nK 38 1 0'
+  [[ $(cat "$L/raw") == "$expected" ]] || tfail "lua redaction output: $(cat "$L/raw")"
+  pass "lua redaction (letters hidden, shortcuts and navigation shown, pause, idempotent arm, disarm)"
+else
+  echo "  skip lua redaction (lua not installed)"
+fi
+
+echo "== record: start → key log → pause on lock → stop → timeline"
+export BF_REC_RUNTIME="$T/run" BF_REC_RECORDER_FILE="$T/recorder-file" BF_HYPR_SOCKET2="$T/no-socket"
+: >"$BF_TEST_LOG"
+"$B" record start >/dev/null || tfail "record start"
+st=$("$B" record status --json); [[ $(j .recording "$st") == true && $(j .videoRecording "$st") == true ]] || tfail "status after start: $st"
+for _ in $(seq 50); do [[ -s $BF_REC_RUNTIME/overlay.json ]] && break; sleep 0.1; done
+[[ -s $BF_REC_RUNTIME/overlay.json ]] || tfail "overlay.json not written: $(cat "$XDG_STATE_HOME"/omarchy-beta-feedback/bundles/*-desktop-recording/helper.log 2>/dev/null)"
+[[ $(stat -c %a "$BF_REC_RUNTIME/keys.raw") == 600 ]] || tfail "raw key file must be 0600"
+grep -q "hyprctl eval local paused, all = false, false" "$BF_TEST_LOG" || tfail "listener armed"
+grep -q "omarchy capture screenrecording --fullscreen" "$BF_TEST_LOG" || tfail "recorder started"
+printf 'K 50 1 0\nK 113 1 0\nK 113 0 0\nK 50 0 0\nK ? 1 0\nK ? 0 0\n' >>"$BF_REC_RUNTIME/keys.raw"
+for _ in $(seq 30); do grep -q 'Shift+Left' "$BF_REC_RUNTIME/overlay.json" 2>/dev/null && break; sleep 0.1; done
+grep -q 'Shift+Left' "$BF_REC_RUNTIME/overlay.json" || tfail "overlay shows the combo: $(cat "$BF_REC_RUNTIME/overlay.json")"
+touch "$T/locked"
+for _ in $(seq 30); do grep -q '"paused": true' "$BF_REC_RUNTIME/overlay.json" 2>/dev/null && break; sleep 0.1; done
+grep -q '"paused": true' "$BF_REC_RUNTIME/overlay.json" || tfail "pause on lock"
+grep -q "hyprctl eval local paused, all = true, false" "$BF_TEST_LOG" || tfail "listener told to pause"
+rm -f "$T/locked"; sleep 1.3
+"$B" record stop --no-report >/dev/null || tfail "record stop"
+[[ ! -e $BF_REC_RUNTIME/keys.raw && ! -e $BF_REC_RUNTIME/overlay.json && ! -e $BF_REC_RUNTIME/recording.json ]] || tfail "runtime files left: $(ls "$BF_REC_RUNTIME")"
+[[ ! -f $T/recording ]] && grep -q "omarchy capture screenrecording --stop-recording" "$BF_TEST_LOG" || tfail "recorder stopped"
+grep -q "hyprctl eval local r = _G.bfrec" "$BF_TEST_LOG" || tfail "listener disarmed"
+rb=$(ls -d "$XDG_STATE_HOME"/omarchy-beta-feedback/bundles/*-desktop-recording | head -n1)
+[[ -s $rb/timeline.txt && -s $rb/events.jsonl && -s $rb/binds.json && -s $rb/input.json && -s $rb/summary.json ]] || tfail "recording bundle: $(ls "$rb")"
+grep -q 'key  down  Shift+Left   => Hyprland bind: Test swap left' "$rb/timeline.txt" || tfail "timeline + bind match: $(cat "$rb/timeline.txt")"
+grep -q 'key  down  •' "$rb/timeline.txt" && grep -q 'LOCKED: key log paused' "$rb/timeline.txt" || tfail "redaction/lock in timeline"
+[[ $(jq -r .videoSaved "$rb/session.json") == true ]] || tfail "session videoSaved"
+st=$("$B" record status --json); [[ $(j .recording "$st") == false ]] || tfail "status after stop: $st"
+"$B" record stop >/dev/null 2>&1 && tfail "stop without a recording must fail"
+pass "record start / key log / lock pause / stop / timeline"
+
+echo "== report --bundle about the desktop: recording section, no label"
+printf 'bug\nShift+Left does not select\nIn text fields.\nSave the bundle only (nothing leaves this machine)\n' >"$BF_ANSWERS"; : >"$BF_TEST_LOG"
+"$B" report --bundle "$rb" --no-popup >/dev/null 2>&1 || tfail "desktop report"
+grep -q '| Target | Omarchy desktop |' "$rb/body.md" && grep -q '| Input method | none |' "$rb/body.md" || tfail "desktop rows: $(cat "$rb/body.md")"
+grep -q '\*\*Troubleshooting recording\*\*' "$rb/body.md" && grep -q '`Shift+Left -> Test swap left`' "$rb/body.md" || tfail "recording section: $(cat "$rb/body.md")"
+grep -q 'plugin=desktop -->' "$rb/body.md" || tfail "desktop marker"
+r=$(tail -n1 "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl"); [[ $(j .plugin "$r") == desktop && $(j .status "$r") == local ]] || tfail "desktop record: $r"
+printf 'bug\nAgain\n\nOpen github.com/omacom/omarchy in the browser\n' >"$BF_ANSWERS"; : >"$BF_TEST_LOG"
+BF_GH_NOAUTH=1 "$B" report --bundle "$rb" --no-popup >/dev/null 2>&1 || tfail "desktop browser report"
+grep -q "xdg-open https://github.com/omacom/omarchy/issues/new?title=Again&body=" "$BF_TEST_LOG" && ! grep -q "labels=" "$BF_TEST_LOG" || tfail "desktop url must carry no label: $(cat "$BF_TEST_LOG")"
+grep -q "Attach the recording" "$BF_TEST_LOG" || tfail "video attach hint"
+"$B" report --bundle "$T" --no-popup >/dev/null 2>&1 && tfail "--bundle outside the bundles dir must be refused"
+pass "desktop report"
+
+echo "== info: joinable betas, set-up candidates, desktop reports, recording state"
+mkdir -p "$PL/other.beta" "$PL/no.beta"
+echo '{"id":"other.beta","name":"Other"}' >"$PL/other.beta/manifest.json"; echo '{"repo":"someone/other"}' >"$PL/other.beta/.beta-feedback.json"
+echo '{"id":"no.beta","name":"No beta"}' >"$PL/no.beta/manifest.json"
+git init -q "$T/nobeta-src"; git -C "$PL/no.beta" init -q; git -C "$PL/no.beta" remote add origin "$T/nobeta-src"
+info=$("$B" info)
+[[ $(j '.available[] | select(.plugin=="other.beta") | .beta' "$info") == true ]] || tfail "joinable beta: $info"
+[[ $(j '.available[] | select(.plugin=="no.beta") | .beta' "$info") == false && $(j '.available[] | select(.plugin=="no.beta") | .source' "$info") == "$T/nobeta-src" ]] || tfail "set-up candidate: $info"
+[[ -z $(j '.available[] | select(.plugin=="test.plugin") | .plugin' "$info") ]] || tfail "enrolled plugins must not be listed as available"
+[[ $(j '.desktopReports | length' "$info") == 2 && $(j .recording.recording "$info") == false ]] || tfail "desktop reports / recording: $info"
+pass "info"
+
 echo "== validator-friendly tree: no symlinks, manifest ok"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -type l -print) ]] || tfail "symlink in tree"
 jq -e '.id=="fans.omarchy.beta-feedback" and .entryPoints.barWidget=="Panel.qml"' "$ROOT/manifest.json" >/dev/null || tfail manifest

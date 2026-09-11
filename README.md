@@ -14,6 +14,12 @@ shell plugin you author, with **no server and no running costs**.
 - **Testers** get a desktop notification when a fix is ready: *Update now* moves
   their plugin clone to `staging`; *It works* / *Still broken* posts the verdict
   on the issue; *Back to stable* returns to `main` after the release.
+- **Anyone** can make a *troubleshooting recording* from the bar chip: a video
+  of the focused screen with the keys drawn on it, plus a timestamped log of key
+  presses (typed text hidden unless you opt in) and desktop events, bundled
+  into a report about a plugin or about the desktop itself. Keys come from a
+  Hyprland Lua listener registered at runtime: no root, no config edits, paused
+  while the screen is locked. See [docs/end-users.md](docs/end-users.md).
 
 The transport is GitHub Issues + labels. State lives in
 `~/.local/state/omarchy-beta-feedback/` (a small SQLite queue for authors,

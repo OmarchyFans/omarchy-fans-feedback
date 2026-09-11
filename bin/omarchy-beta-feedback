@@ -8,10 +8,16 @@
 #   omarchy-beta-feedback unenroll <pluginId>          opt out (or --declined: never ask again)
 #   omarchy-beta-feedback report --plugin ID [--shot PNG] [--context JSON] [--branch B]
 #                                                      build + submit a report (opens a floating form)
+#   omarchy-beta-feedback report --bundle DIR [--plugin ID]
+#                                                      report from a saved recording (no plugin = the desktop)
+#   omarchy-beta-feedback record start [--plugin ID] [--all-keys] [--no-overlay]
+#                                                      troubleshooting recording: focused screen + key presses
+#   omarchy-beta-feedback record stop [--no-report]    stop it, save the bundle, write the report
+#   omarchy-beta-feedback record status [--json]
 #   omarchy-beta-feedback poll [--all]                 check GitHub for fixes/releases, notify
 #   omarchy-beta-feedback update <pluginId> --channel beta|stable   switch the plugin clone's branch
 #   omarchy-beta-feedback confirm <pluginId> <issue> --works|--broken   tell the author how the beta went
-#   omarchy-beta-feedback list | info --json           enrollments and reports
+#   omarchy-beta-feedback list | info --json           enrollments, joinable betas and reports
 #
 # Authors (your own plugins' repos):
 #   omarchy-beta-feedback author init [repo-dir]       vendor the SDK, add .beta-feedback.json, labels, staging
@@ -34,18 +40,22 @@ source "$BF_LIB/common.sh"
 source "$BF_LIB/state.sh"
 source "$BF_LIB/github.sh"
 source "$BF_LIB/report.sh"
+source "$BF_LIB/record.sh"
 source "$BF_LIB/update.sh"
 source "$BF_LIB/author.sh"
 source "$BF_LIB/agent.sh"
 # shellcheck source=/dev/null
 [[ -n ${BF_UI_STUBS:-} ]] && source "$BF_UI_STUBS"
 
+# The comment block at the top of this file is the help text.
+usage() { awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$BF_SELF"; }
+
 JSON=0 ARGS=()
 for a in "$@"; do
   case "$a" in
     --dry-run) BF_DRY_RUN=1 ;;
     --json)    JSON=1 ;;
-    -h|--help) sed -n '3,25p' "$BF_SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     --version) echo "omarchy-beta-feedback $BF_VERSION"; exit 0 ;;
     *)         ARGS+=("$a") ;;
   esac
@@ -63,6 +73,7 @@ case "$cmd" in
   enroll)   cmd_enroll "${1:-}" ;;
   unenroll) cmd_unenroll "${1:-}" "${2:-}" ;;
   report)   cmd_report "$@" ;;
+  record)   cmd_record "$@" ;;
   poll)     cmd_poll "$@" ;;
   update)   cmd_update "$@" ;;
   confirm)  cmd_confirm "$@" ;;
@@ -80,6 +91,6 @@ case "$cmd" in
       fixed)   author_mark_fixed "$@" ;;
       *) fail "unknown author command '$sub' (init|inbox|sync|repair|promote|approve|reject)" ;;
     esac ;;
-  help|"") sed -n '3,25p' "$BF_SELF" | sed 's/^# \{0,1\}//' ;;
+  help|"") usage ;;
   *) fail "unknown command '$cmd' (try --help)" ;;
 esac

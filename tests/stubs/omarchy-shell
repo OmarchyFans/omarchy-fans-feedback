@@ -1,0 +1,5 @@
+#!/bin/bash
+# omarchy-shell lock isLocked: "true" while $BF_TEST_DIR/locked exists.
+if [[ ${1:-} == lock && ${2:-} == isLocked ]]; then
+  if [[ -f ${BF_TEST_DIR:-/nonexistent}/locked ]]; then echo true; else echo false; fi
+fi

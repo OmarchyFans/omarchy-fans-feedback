@@ -5,16 +5,21 @@
 
 gh_ready() { have gh && gh auth status >/dev/null 2>&1; }
 
-# Create an issue. Prints the issue URL on success.
-gh_issue_create() { # gh_issue_create <owner/repo> <title> <body-file> <label>
-  gh issue create -R "$1" --title "$2" --body-file "$3" --label "$4" 2>/dev/null
+# Create an issue. Prints the issue URL on success. No label for repos that do
+# not carry ours (desktop reports to Omarchy).
+gh_issue_create() { # gh_issue_create <owner/repo> <title> <body-file> [label]
+  local args=(issue create -R "$1" --title "$2" --body-file "$3")
+  [[ -n ${4:-} ]] && args+=(--label "$4")
+  gh "${args[@]}" 2>/dev/null
 }
 
 # Prefilled new-issue URL (body trimmed: browsers cap URLs around 8 KB).
-issue_new_url() { # issue_new_url <owner/repo> <title> <body-file> <label>
+issue_new_url() { # issue_new_url <owner/repo> <title> <body-file> [label]
   local body; body=$(head -c 6000 "$3")
   (( $(wc -c <"$3") > 6000 )) && body+=$'\n\n_(trimmed; the full bundle is on the reporter\x27s machine)_'
-  printf 'https://github.com/%s/issues/new?title=%s&body=%s&labels=%s' "$1" "$(urlencode "$2")" "$(urlencode "$body")" "$(urlencode "$4")"
+  printf 'https://github.com/%s/issues/new?title=%s&body=%s' "$1" "$(urlencode "$2")" "$(urlencode "$body")"
+  [[ -n ${4:-} ]] && printf '&labels=%s' "$(urlencode "$4")"
+  printf '\n'
 }
 
 # Issues with our label, as compact JSON [{number,title,state,labels:[..],updated_at,html_url,body}].

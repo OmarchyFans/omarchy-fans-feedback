@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "fans.omarchy.beta-feedback",
   "name": "Beta Feedback",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "modpunk (omarchy.fans)",
   "license": "MIT",
-  "description": "Beta program for Omarchy plugins: end users opt in, get a bug button inside enrolled plugins, and file reports carrying the last 10 clicks, a panel-only screenshot they annotate, and version info. Reports become GitHub issues on the plugin's repo; authors triage them, let an agent fix them on a staging branch, and testers get an update-ready notification.",
+  "description": "Beta program for Omarchy plugins: end users opt in, get a bug button inside enrolled plugins, and file reports carrying the last 10 clicks, a panel-only screenshot they annotate, and version info. A troubleshooting recording captures the focused screen with an on-screen key display and a timestamped log of key presses (typed text hidden by default) and desktop events, for bugs in plugins or the desktop itself. Reports become GitHub issues on the plugin's repo; authors triage them, let an agent fix them on a staging branch, and testers get an update-ready notification.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Beta Feedback",
-    "description": "Bug chip: your beta enrollments, your reports and their status, and update-now buttons when a fix is ready.",
+    "description": "Bug chip: troubleshooting recordings, betas you can join, your enrollments and reports, and update-now buttons when a fix is ready.",
     "category": "Developer Tools",
     "aliases": [
       "beta-feedback",

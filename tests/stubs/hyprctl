@@ -2,5 +2,9 @@
 case "$1" in
   version) echo '{"tag":"v0.56.0"}' ;;
   monitors) echo '[{"name":"DP-1","width":3440,"height":1440,"scale":1.0,"refreshRate":144.0}]' ;;
+  binds) echo '[{"modmask":1,"key":"LEFT","keycode":0,"submap":"","description":"Test swap left","mouse":false,"release":false}]' ;;
+  devices) echo '{"keyboards":[{"name":"kbd","main":true,"layout":"us","variant":"","options":"compose:caps"}]}' ;;
+  # Log only the first line of a Lua chunk: enough to tell arm/pause/disarm apart.
+  eval) printf 'hyprctl eval %s\n' "$(head -n1 <<<"${2:-}")" >>"${BF_TEST_LOG:-/dev/null}"; echo ok ;;
   *) echo '[]' ;;
 esac

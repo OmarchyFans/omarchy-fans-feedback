@@ -136,6 +136,29 @@ report_update_by_issue() { # <pluginId> <issue> <jq-update>
   jq -c --arg id "$1" --argjson n "$2" "if .plugin == \$id and .issue == \$n then $3 else . end" "$BF_REPORTS" >"$tmp" && mv -f "$tmp" "$BF_REPORTS"
 }
 
+# ---- joinable betas ----------------------------------------------------------
+# Installed plugins that are not enrolled: `beta` when their author runs a beta
+# program (.beta-feedback.json with a repo), `source` when the plugin was
+# installed from a git repo on this machine, so the user can set one up.
+available_json() {
+  local d id list='[]' st cfg repo origin src name
+  for d in "$BF_PLUGINS"/*/; do
+    d=${d%/}; id=${d##*/}
+    [[ -f $d/manifest.json ]] && valid_plugin_id "$id" || continue
+    [[ $id == fans.omarchy.beta-feedback ]] && continue
+    st=$(enroll_get "$id" | jq -r '.status // "unknown"')
+    [[ $st == enrolled ]] && continue
+    cfg=false; [[ -f $d/.beta-feedback.json ]] && cfg=true
+    repo=$(plugin_repo "$id")
+    origin=$(git -C "$d" remote get-url origin 2>/dev/null || true)
+    src=""; [[ $origin == /* && -e $origin/.git ]] && src=$origin
+    name=$(jq -r '.name // .id // empty' "$d/manifest.json" 2>/dev/null)
+    list=$(jq -c --arg id "$id" --arg name "${name:-$id}" --arg st "$st" --argjson cfg "$cfg" --arg repo "$repo" --arg src "$src" \
+      '. + [{plugin: $id, name: $name, status: $st, beta: ($cfg and $repo != ""), repo: $repo, source: $src}]' <<<"$list")
+  done
+  printf '%s' "$list"
+}
+
 # ---- everything the bar panel needs, in one JSON ----------------------------
 cmd_info() {
   ensure_state
@@ -145,5 +168,7 @@ cmd_info() {
     list=$(jq -c --argjson s "$(cmd_status "$id")" '. + [$s]' <<<"$list")
   done
   jq -cn --arg r "$(reporter_id)" --argjson e "$list" --arg v "$BF_VERSION" \
-    '{version:$v, reporter:$r, plugins:$e, updates:[$e[] | select(.updateAvailable)], enrolled:[$e[] | select(.status=="enrolled")] | length}'
+     --argjson a "$(available_json)" --argjson dr "$(reports_for desktop)" --argjson rec "$(record_status --json)" \
+    '{version:$v, reporter:$r, plugins:$e, available:$a, desktopReports:$dr, recording:$rec,
+      updates:[$e[] | select(.updateAvailable)], enrolled:[$e[] | select(.status=="enrolled")] | length}'
 }

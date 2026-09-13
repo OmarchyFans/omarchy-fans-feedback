@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""omarchy-feedback daemon: the always-on event log (and, later, replay + viewer).
+"""omarchy-feedback daemon: the always-on event log and the optional screen replay.
 
   feedbackd.py            run in the foreground (the CLI starts it with setsid)
 
@@ -12,7 +12,8 @@ One instance per session, guarded by flock on $RT/daemon.lock. It
   - pauses the key listener while the session is locked (checked once a second
     on Hyprland's command socket, same rule as omarchy-hyprland-session-locked);
   - writes everything to one-minute JSONL segments on tmpfs, keeping 12 minutes;
-  - answers one-line JSON requests on $RT/ctl.sock (status, snap, pause, resume, stop);
+  - runs gpu-screen-recorder in replay mode while armed (auto-disarm: 30 min, lock, monitor change);
+  - answers one-line JSON requests on $RT/ctl.sock (status, snap, pause, resume, arm, disarm, stop);
   - keeps $RT/status.json fresh (the bar chip reads it; its mtime is the heartbeat).
 Nothing here is written inside ~/.config/omarchy/plugins.
 """
@@ -120,6 +121,8 @@ class Daemon:
         self.next_lock_check = 0.0
         self.next_rearm = 0.0
         self.next_truncate = time.monotonic() + 3600
+        self.replay = None          # {"proc", "monitor", "armedAt", "seconds", "ipc", "dir"}
+        self.replay_note = ""       # why the last replay ended
 
     # ---------------------------------------------------------------- basics --
     def emit(self, ev):
@@ -153,7 +156,100 @@ class Daemon:
                 "keyListener": self.lua_ok, "keyListenerError": "" if self.lua_ok else self.lua_error,
                 "hyprland": self.s2 is not None, "events": self.events_written,
                 "keepMinutes": self.log.keep if self.log else of_events.KEEP_MINUTES,
-                "replay": {"armed": False}}
+                "replay": self.replay_status()}
+
+    # -------------------------------------------------------------- replay --
+    # gpu-screen-recorder in replay mode keeps the last N seconds in RAM and
+    # writes nothing until asked. It runs with argv[0] "omarchy-feedback-replay"
+    # so Omarchy's `pkill -f "^gpu-screen-recorder"` (its own recorder's stop)
+    # does not kill it. Saving goes through its -ipc socket (ofctl save-replay).
+    REPLAY_ARGV0 = "omarchy-feedback-replay"
+
+    def replay_status(self):
+        r = self.replay
+        if not r:
+            return {"armed": False, "lastEnded": self.replay_note}
+        return {"armed": True, "monitor": r["monitor"], "armedAt": r["armedAt"], "seconds": r["seconds"],
+                "ipc": r["ipc"], "dir": r["dir"], "pid": r["proc"].pid,
+                "maxSeconds": self.replay_max_s(), "lastEnded": self.replay_note}
+
+    @staticmethod
+    def replay_max_s():
+        return int(os.environ.get("OF_REPLAY_MAX_S", "1800"))
+
+    def focused_monitor(self):
+        mons = of_events.hypr_json("monitors", []) or []
+        for m in mons:
+            if isinstance(m, dict) and m.get("focused"):
+                return m.get("name")
+        return mons[0].get("name") if mons and isinstance(mons[0], dict) else None
+
+    def arm_replay(self, seconds=120):
+        if self.replay:
+            return {"ok": True, **self.replay_status()}
+        if self.locked:
+            return {"ok": False, "error": "the screen is locked"}
+        gsr = os.environ.get("OF_GSR") or "gpu-screen-recorder"
+        exe = gsr if os.path.isabs(gsr) else next(
+            (os.path.join(p, gsr) for p in os.environ.get("PATH", "").split(os.pathsep)
+             if os.access(os.path.join(p, gsr), os.X_OK)), None)
+        if not exe:
+            return {"ok": False, "error": "gpu-screen-recorder is not installed"}
+        mon = self.focused_monitor()
+        if not mon:
+            return {"ok": False, "error": "no monitor found"}
+        seconds = max(10, min(int(seconds or 120), 600))
+        out = os.path.join(self.state, "replays")
+        os.makedirs(out, mode=0o700, exist_ok=True)
+        ipc = os.path.join(self.rt, "replay.sock")
+        argv = [self.REPLAY_ARGV0, "-w", mon, "-c", "mp4", "-f", "30", "-r", str(seconds),
+                "-replay-storage", "ram", "-k", "auto", "-q", "medium", "-cursor", "yes",
+                "-write-first-frame-ts", "yes", "-o", out, "-ipc", ipc]
+        log = open(os.path.join(self.rt, "replay.log"), "ab")
+        try:
+            proc = subprocess.Popen(argv, executable=exe, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                    start_new_session=True)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            log.close()
+        self.replay = {"proc": proc, "monitor": mon, "armedAt": of_events.now_ms(), "seconds": seconds,
+                       "ipc": ipc, "dir": out}
+        self.replay_note = ""
+        self.log.write({"type": "daemon", "event": "replay-armed", "monitor": mon, "seconds": seconds})
+        self.write_status(force=True)
+        return {"ok": True, **self.replay_status()}
+
+    def disarm_replay(self, why="disarmed"):
+        r = self.replay
+        if not r:
+            return {"ok": True, "armed": False}
+        self.replay = None
+        self.replay_note = why
+        p = r["proc"]
+        if p.poll() is None:
+            try:
+                p.send_signal(signal.SIGINT)  # replay mode: stop without saving
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait(timeout=2)
+            except OSError:
+                pass
+        self.log.write({"type": "daemon", "event": "replay-disarmed", "why": why})
+        self.write_status(force=True)
+        return {"ok": True, "armed": False, "why": why}
+
+    def check_replay(self):
+        r = self.replay
+        if not r:
+            return
+        if r["proc"].poll() is not None:
+            self.disarm_replay("recorder exited (code %s); see replay.log" % r["proc"].returncode)
+        elif of_events.now_ms() - r["armedAt"] > self.replay_max_s() * 1000:
+            self.disarm_replay("auto-disarmed after %d minutes" % (self.replay_max_s() // 60))
+        elif self.locked:
+            self.disarm_replay("auto-disarmed when the screen locked")
 
     def write_status(self, force=False):
         t = time.monotonic()
@@ -198,6 +294,8 @@ class Daemon:
             self.emit(ev)
             if ev["event"] == "configreloaded":
                 self.next_rearm = 0
+            if ev["event"] == "focusedmon" and self.replay and ev.get("monitor") != self.replay["monitor"]:
+                self.disarm_replay("auto-disarmed: focus moved to monitor %s" % ev.get("monitor"))
             if ev["event"] in of_events.CURSOR_AFTER and not self.user_paused:
                 pos = of_events.hypr_json("cursorpos")
                 if isinstance(pos, dict) and "x" in pos:
@@ -261,6 +359,10 @@ class Daemon:
             self.arm()
             self.write_status(force=True)
             return {"ok": True, "paused": self.user_paused}
+        if cmd == "arm":
+            return self.arm_replay(req.get("seconds") or 120)
+        if cmd == "disarm":
+            return self.disarm_replay("disarmed")
         if cmd == "stop":
             self.running = False
             return {"ok": True}
@@ -373,8 +475,10 @@ class Daemon:
             if now >= self.next_truncate:
                 self.next_truncate = now + 3600
                 self.truncate_raw()
+            self.check_replay()
             self.write_status()
 
+        self.disarm_replay("daemon stopped")
         self.hypr_eval(of_keys.LUA_DISARM)
         self.on_raw()
         self.log.write({"type": "daemon", "event": "stop"})

@@ -1,5 +1,5 @@
 #!/bin/bash
-printf 'tensaku %s\n' "$*" >>"$BF_TEST_LOG"
+printf 'tensaku %s\n' "$*" >>"$OF_TEST_LOG"
 in=""; out=""; while (($#)); do case "$1" in -f) in=$2; shift ;; -o) out=$2; shift ;; esac; shift; done
-[[ -n ${BF_TENSAKU_CANCEL:-} ]] && exit 0
+[[ -n ${OF_TENSAKU_CANCEL:-} ]] && exit 0
 { cat "$in"; echo annotated; } >"$out"

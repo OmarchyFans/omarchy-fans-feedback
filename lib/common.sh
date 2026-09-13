@@ -13,7 +13,7 @@ OF_DRY_RUN=${OF_DRY_RUN:-0}
 export OF_STATE OF_RUNTIME PYTHONDONTWRITEBYTECODE=1   # no __pycache__ inside the plugin folder
 
 # ---------------------------------------------------------------- output ----
-say()  { printf '%s\n' "$*"; }
+say()  { if (( ${JSON:-0} )); then printf '%s\n' "$*" >&2; else printf '%s\n' "$*"; fi; }
 info() { printf '  %s\n' "$*"; }
 warn() { printf 'omarchy-feedback: %s\n' "$*" >&2; }
 fail() { warn "$*"; exit 1; }
@@ -55,7 +55,7 @@ ui_filter()  { gum filter --header "$1" --placeholder "type to filter" "${@:2}";
 ui_input()   { gum input --header "$1" --placeholder "${2:-}" --value "${3:-}"; }
 ui_write()   { gum write --header "$1" --placeholder "${2:-}" --height 8; }
 ui_confirm() { gum confirm "$1"; }
-ui_style()   { gum style --border rounded --padding "0 1" "$@"; }
+ui_style()   { gum style --border rounded --padding "0 1" "$@" >&2; }
 
 notify() { # notify <headline> [body] [--exec prog args...]
   if have omarchy-notification-send; then

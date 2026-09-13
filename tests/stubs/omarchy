@@ -1,19 +1,4 @@
 #!/bin/bash
-[[ $1 == version ]] && { echo "3.5.0"; exit 0; }
-# omarchy capture screenrecording [--fullscreen|--stop-recording]: a fake
-# recorder. "Running" while $BF_TEST_DIR/recording exists; the filename goes to
-# $BF_REC_RECORDER_FILE like Omarchy's /tmp/omarchy-screenrecord-filename.
-if [[ $1 == capture && ${2:-} == screenrecording ]]; then
-  printf 'omarchy %s\n' "$*" >>"${BF_TEST_LOG:-/dev/null}"
-  if [[ ${3:-} == --stop-recording ]]; then
-    [[ -f $BF_TEST_DIR/recording ]] || exit 1
-    rm -f "$BF_TEST_DIR/recording"
-    cat "$BF_REC_RECORDER_FILE"; rm -f "$BF_REC_RECORDER_FILE"
-  else
-    mkdir -p "$BF_TEST_DIR/Videos"
-    f="$BF_TEST_DIR/Videos/screenrecording-test.mp4"; printf 'mp4' >"$f"
-    touch "$BF_TEST_DIR/recording"; echo "$f" >"$BF_REC_RECORDER_FILE"
-  fi
-  exit 0
-fi
-exit 1
+printf 'omarchy %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"
+[[ ${1:-} == version ]] && echo "4.0.2"
+exit 0

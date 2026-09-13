@@ -1,2 +1,0 @@
-#!/bin/bash
-printf '\e[34m DEBUG\e[0m qml: something unrelated\n qml: test.plugin panel opened\n WARN qml: file:///x/test.plugin/Panel.qml:12: ReferenceError: foo is not defined\n'

@@ -42,8 +42,10 @@ try:
                 path = os.path.join(out, "Replay_test_%d.mp4" % n)
                 with open(path, "wb") as f:
                     f.write(b"fake-mp4")
-                with open(path + ".ts", "w") as f:
-                    f.write("monotonic_microsec realtime_microsec\n%d %d\n" % (time.monotonic_ns() // 1000, time.time_ns() // 1000))
+                # The real recorder writes no .ts for replay saves (verified live); OF_GSR_TS=1 simulates one.
+                if os.environ.get("OF_GSR_TS") == "1":
+                    with open(path + ".ts", "w") as f:
+                        f.write("monotonic_microsec realtime_microsec\n%d %d\n" % (time.monotonic_ns() // 1000, time.time_ns() // 1000))
                 conn.sendall((json.dumps({"id": req.get("id", 0), "result": "ok", "data": path}) + "\n").encode())
             elif req.get("name") == "stop":
                 conn.sendall((json.dumps({"id": req.get("id", 0), "result": "ok"}) + "\n").encode())

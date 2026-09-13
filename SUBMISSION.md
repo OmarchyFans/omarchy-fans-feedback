@@ -1,19 +1,44 @@
-# Marketplace submission draft — omacom/omarchy-plugin-marketplace
+# Marketplace submission draft (omacom/omarchy-plugin-marketplace)
 
-**Repo:** https://github.com/modpunk/omarchy-beta-feedback
-**Plugin id:** fans.omarchy.beta-feedback  **Category:** Developer Tools  **Tags:** feedback, beta, bugs, github
+**Plugin id:** fans.omarchy.feedback
+**Repo:** https://github.com/OmarchyFans/omarchy-fans-feedback (to be created)
+**Category:** Developer Tools  **Tags:** feedback, bugs, issues, agents
 
-**Summary:** A serverless beta program for plugin authors. End users opt in
-per plugin, get a bug button inside the plugin's panel, and file annotated
-reports as GitHub issues with their own login. Authors triage in a TUI, let an
-agent fix on a staging branch, and testers get update-now notifications.
+**Summary:** Record feedback about anything on the desktop. SUPER + ALT + B takes a
+screenshot, attaches the last minutes of an event log (window focus and shortcuts,
+never typed text) and an optional in-memory screen replay, opens Tensaku for
+markup, and files a local issue. Issues can be handed to Agent Launcher's Rix, the
+Omarchy default coding agent, or the project author (a prefilled GitHub issue the
+user reviews). A local web viewer replays the lead-up and exports PDF or Markdown.
 
-**Capabilities to expect in the baseline scan (all by design):**
-- `process-spawn` — the panel runs the bundled CLI; the CLI runs git, gh, tensaku, jq, sqlite3.
-- `network` — `gh api` / `curl` to api.github.com only (issue lists, search, comments) and `git fetch` of the plugin's own origin. No other endpoints; no token of the author's is ever placed on an end user's machine.
-- `clipboard` — `wl-copy` puts the reporter's own annotated screenshot on their clipboard so they can paste it into the issue.
-- `installer` — optional `install.sh` (symlink + menu entry, confirmed per step) and `uninstall.sh`.
-- `writes-user-config` — only `~/.config/omarchy/extensions/omarchy-menu.jsonc` (install.sh, opt-in) and the plugin's own dirs.
-- **Not present:** `screen-capture` (grim/slurp are not used; the panel image comes from `Item.grabToImage` on the plugin's own item), `input-capture`, `privilege`, `service-management`, `dynamic-code-load`.
+**Capabilities the baseline scan will list, all by design:**
 
-**Verification:** `tests/run.sh` (stubbed end-to-end loop), `omarchy plugin validate .`.
+- `screen-capture`: `grim` for the screenshot at capture time; `gpu-screen-recorder`
+  in replay mode only while the user arms it (RAM buffer, auto-off after 30 minutes,
+  on lock, on monitor change).
+- `input-capture`: a Hyprland Lua `input.keyboard.key` listener registered with
+  `hyprctl eval`. Letters, digits, punctuation and space are replaced in Lua before
+  anything is written; the listener pauses while the session is locked; the log
+  lives in `$XDG_RUNTIME_DIR` and keeps 12 minutes. No /dev/input, no root.
+- `process-spawn`: the bar widget runs the bundled CLI; the CLI runs hyprctl,
+  grim, ffmpeg, tensaku, gum, git, sqlite3 (Python stdlib), chromium (headless PDF).
+- `network`: a loopback-only HTTP server on 127.79.33.1:7741 for the viewer
+  (exact Host check, per-machine token, same-origin writes only). `git clone` of a
+  plugin's own origin when handing an issue to the coding agent. No other endpoints.
+- `clipboard`: `wl-copy` puts the Markdown summary on the clipboard for non-GitHub authors.
+- `hyprland-control`: `hyprctl eval` for the key listener only.
+- `writes-user-config`: `install.sh`, each step confirmed: a keybinding appended to
+  `~/.config/hypr/bindings.lua` (never replacing an existing one), a menu section in
+  `~/.config/omarchy/extensions/omarchy-menu.jsonc`, a web-app entry.
+- `installer`: `install.sh` / `uninstall.sh`.
+- `package-manager`: read-only `pacman -Q` / `-Qi` / `-Qoq` lookups to name the
+  package, version and project URL of the app a report is about. Nothing is installed.
+
+Local triage with omarchy-plugin-audit (2026-09-12): no findings; review-required for
+package-manager, network, filesystem-write and process-spawn context.
+
+**Not present:** privilege escalation, service management (the daemon is started by
+the widget), dynamic code loading, credential access, remote endpoints.
+
+**Verification:** `tests/run.sh` (fake Hyprland, stubbed tools), `tests/test_viewer.py`
+(forged-header attacks on the viewer), `omarchy plugin validate .`.

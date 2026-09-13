@@ -8,6 +8,15 @@ daemon_running() { # exit 0 when another process holds the daemon lock
   ! flock -n "$OF_RUNTIME/daemon.lock" true 2>/dev/null
 }
 
+# The beta-program plugin (fans.omarchy.beta-feedback, 0.1/0.2) kept bundles and
+# enrollments here; keep them, out of the way, the first time the new recorder starts.
+migrate_legacy_state() {
+  local old="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-beta-feedback"
+  [[ -d $old && ! -e $OF_STATE/legacy ]] || return 0
+  mv -- "$old" "$OF_STATE/legacy" 2>/dev/null && warn "moved the old beta-feedback state to $OF_STATE/legacy"
+  return 0
+}
+
 cmd_daemon() {
   local sub=${1:-status}
   case "$sub" in
@@ -16,6 +25,7 @@ cmd_daemon() {
       daemon_running && return 0
       [[ -n ${WAYLAND_DISPLAY:-}${OF_HYPR_DIR:-} ]] || fail "no Wayland session"
       ensure_state
+      migrate_legacy_state
       setsid -f python3 "$OF_LIB/feedbackd.py" </dev/null >>"$OF_RUNTIME/daemon.log" 2>&1
       local i; for ((i = 0; i < 50; i++)); do [[ -S $OF_RUNTIME/ctl.sock ]] && daemon_running && return 0; sleep 0.1; done
       warn "daemon did not come up; see $OF_RUNTIME/daemon.log"; return 1 ;;

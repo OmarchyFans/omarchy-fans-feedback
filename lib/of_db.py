@@ -180,12 +180,14 @@ def read_first_frame_ts(path):
     """gpu-screen-recorder -write-first-frame-ts: a header line, then 'monotonic_us realtime_us'."""
     try:
         with open(path) as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                    return {"firstFrameMonoMs": int(parts[0]) // 1000, "firstFrameMs": int(parts[1]) // 1000}
+            text = f.read()
     except OSError:
-        pass
+        return None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            return {"firstFrameMonoMs": int(parts[0]) // 1000, "firstFrameMs": int(parts[1]) // 1000,
+                    "estimated": "estimated" in text}
     return None
 
 

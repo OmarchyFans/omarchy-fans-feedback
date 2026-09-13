@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+# omarchy-feedback — record feedback about anything on the Omarchy desktop.
+#
+# Recorder (always on while you are logged in, pauses while the screen is locked):
+#   omarchy-feedback daemon ensure|status|stop|restart
+#   omarchy-feedback pause | resume          stop / restart the event log
+#   omarchy-feedback snap <file> [minutes]   copy the last N minutes of events into a file
+#
+# Flags: --dry-run  print side-effecting commands instead of running them
+#        --json     machine output where supported
+set -uo pipefail
+
+OF_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+OF_ROOT="$(cd -- "$(dirname -- "$OF_SELF")/.." && pwd)"
+OF_LIB="$OF_ROOT/lib"
+OF_VERSION=$(jq -r .version "$OF_ROOT/manifest.json" 2>/dev/null || echo dev)
+
+source "$OF_LIB/common.sh"
+source "$OF_LIB/daemon.sh"
+# shellcheck source=/dev/null
+[[ -n ${OF_UI_STUBS:-} ]] && source "$OF_UI_STUBS"
+
+usage() { awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$OF_SELF"; }
+
+JSON=0 ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --dry-run) OF_DRY_RUN=1 ;;
+    --json)    JSON=1 ;;
+    -h|--help) usage; exit 0 ;;
+    --version) echo "omarchy-feedback $OF_VERSION"; exit 0 ;;
+    *)         ARGS+=("$a") ;;
+  esac
+done
+export OF_DRY_RUN JSON
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+cmd=${1:-help}; shift || true
+case "$cmd" in
+  daemon) cmd_daemon "$@" ;;
+  pause)  cmd_pause ;;
+  resume) cmd_resume ;;
+  snap)   cmd_snap "$@" ;;
+  help)   usage ;;
+  *) fail "unknown command '$cmd' (try --help)" ;;
+esac

@@ -1,10 +1,22 @@
 #!/bin/bash
-case "$1" in
-  version) echo '{"tag":"v0.56.0"}' ;;
-  monitors) echo '[{"name":"DP-1","width":3440,"height":1440,"scale":1.0,"refreshRate":144.0}]' ;;
-  binds) echo '[{"modmask":1,"key":"LEFT","keycode":0,"submap":"","description":"Test swap left","mouse":false,"release":false}]' ;;
+# hyprctl stub. `eval` logs the first line of the Lua chunk (enough to tell arm,
+# pause and disarm apart); JSON queries come from $OF_HYPR_DIR/<name>.json when
+# a test provides one.
+log() { printf '%s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"; }
+j=0; [[ ${1:-} == -j ]] && { j=1; shift; }
+case "${1:-}" in
+  eval) log "hyprctl eval $(head -n1 <<<"${2:-}")"; echo ok; exit 0 ;;
+  dispatch) log "hyprctl $*"; echo ok; exit 0 ;;
+esac
+name=${1:-}
+if [[ -n ${OF_HYPR_DIR:-} && -f $OF_HYPR_DIR/$name.json ]]; then cat "$OF_HYPR_DIR/$name.json"; exit 0; fi
+case "$name" in
+  version) echo '{"tag":"v0.56.2"}' ;;
+  monitors) echo '[{"name":"eDP-1","x":0,"y":0,"width":1920,"height":1200,"scale":1.5,"focused":true,"refreshRate":60.0}]' ;;
+  activewindow) echo '{"class":"kitty","title":"~","pid":4242,"at":[10,40],"size":[600,400],"monitor":0,"address":"0xabc"}' ;;
+  cursorpos) echo '{"x":640,"y":12}' ;;
+  binds) echo '[{"modmask":64,"key":"RETURN","keycode":0,"submap":"","description":"Terminal","mouse":false,"release":false}]' ;;
   devices) echo '{"keyboards":[{"name":"kbd","main":true,"layout":"us","variant":"","options":"compose:caps"}]}' ;;
-  # Log only the first line of a Lua chunk: enough to tell arm/pause/disarm apart.
-  eval) printf 'hyprctl eval %s\n' "$(head -n1 <<<"${2:-}")" >>"${BF_TEST_LOG:-/dev/null}"; echo ok ;;
+  layers) echo '{"eDP-1":{"levels":{"2":[{"namespace":"omarchy-bar"}]}}}' ;;
   *) echo '[]' ;;
 esac

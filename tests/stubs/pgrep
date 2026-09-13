@@ -1,7 +1,0 @@
-#!/bin/bash
-# Only the screen-recorder check matters in tests: "running" while
-# $BF_TEST_DIR/recording exists.
-case "$*" in
-  *gpu-screen-recorder*) [[ -f ${BF_TEST_DIR:-/nonexistent}/recording ]] ;;
-  *) exit 1 ;;
-esac

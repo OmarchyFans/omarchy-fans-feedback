@@ -1,6 +1,0 @@
-{
-  "repo": "OWNER/NAME",
-  "stableBranch": "main",
-  "betaBranch": "staging",
-  "labels": ["beta-feedback", "approved", "fixed-in-beta", "released", "wontfix"]
-}

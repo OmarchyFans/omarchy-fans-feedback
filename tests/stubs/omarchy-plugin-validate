@@ -1,4 +1,0 @@
-#!/bin/bash
-printf 'validate %s\n' "$*" >>"$BF_TEST_LOG"
-[[ -f $1/BREAK ]] && { echo "invalid" >&2; exit 1; }
-exit 0

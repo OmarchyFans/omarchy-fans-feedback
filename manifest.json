@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "fans.omarchy.feedback",
   "name": "Feedback",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": "modpunk (omarchy.fans)",
   "license": "MIT",
   "description": "Record feedback about anything on your Omarchy desktop: a plugin, an app, a window, or Omarchy itself. A small always-on event log (window focus and shortcuts, never typed text; paused while locked) and an optional screen replay show what led up to the issue. Press the bug to capture a screenshot you can mark up, file it in a local issue list, and send it to Rix, your coding agent, or the author. A local web viewer replays the lead-up and exports PDF or Markdown.",

@@ -1,10 +1,14 @@
 #!/bin/bash
 # Reverses install.sh: stops the recorder, removes the ~/.local/bin symlink, the
-# keybinding and the menu entries. Keeps ~/.local/state/omarchy-feedback (your
+# keybinding, the menu entries and the web app launcher. Keeps ~/.local/state/omarchy-feedback (your
 # issues) unless --purge.
 set -euo pipefail
 MARK="fans.omarchy.feedback"
 REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Tools only from root-owned system folders (see bin/omarchy-feedback); tests may add the plugin's own stubs.
+PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin
+[[ -n ${OF_TEST_STUBS:-} && $OF_TEST_STUBS == "$REPO/tests/stubs" ]] && PATH="$OF_TEST_STUBS:$PATH"
+export PATH
 "$REPO/bin/omarchy-feedback" disarm >/dev/null 2>&1 || true
 "$REPO/bin/omarchy-feedback" daemon stop >/dev/null 2>&1 || true
 L="$HOME/.local/bin/omarchy-feedback"
@@ -31,6 +35,12 @@ s = re.sub(r',(\s*)\}\s*$', r'\1}\n', s)   # install.sh added a comma after the 
 open(p, "w").write(s)
 PY
   echo "  removed menu entries from $M"
+fi
+D="${XDG_DATA_HOME:-$HOME/.local/share}"
+W="$D/applications/Feedback.desktop"
+if [[ -f $W ]] && grep -q "^Exec=.*/$MARK/bin/omarchy-feedback open" "$W"; then
+  rm -f "$W" "$D/icons/hicolor/256x256/apps/feedback.png"
+  echo "  removed the Feedback web app launcher"
 fi
 if [[ ${1:-} == --purge ]]; then
   rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-feedback" "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-feedback"

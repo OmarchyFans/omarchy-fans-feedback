@@ -37,6 +37,13 @@ user reviews). A local web viewer replays the lead-up and exports PDF or Markdow
 Local triage with omarchy-plugin-audit (2026-09-12): no findings; review-required for
 package-manager, network, filesystem-write and process-spawn context.
 
+**Executable resolution:** the bar widget runs only the plugin's own `bin/omarchy-feedback` by
+absolute path with a fixed argv (no shell strings). That CLI, `install.sh` and `uninstall.sh` reset
+`PATH` to root-owned folders (`/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin`) before running
+anything, so nothing in a user-writable folder such as `~/.local/bin` can stand in for a tool; Agent
+Launcher is called by its installed plugin path. `tests/run.sh` checks that a shadow `jq`/`python3`
+earlier in `PATH` is ignored.
+
 **Not present:** privilege escalation, service management (the daemon is started by
 the widget), dynamic code loading, credential access, remote endpoints.
 

@@ -14,9 +14,9 @@
 OAL_PLUGIN_BIN="$OF_PLUGINS/fans.omarchy.agent-launcher/bin/omarchy-agent-launcher"
 OF_WORK_DIR="${OF_WORK_DIR:-$HOME/Work}"
 
-oal() {
-  if have omarchy-agent-launcher; then omarchy-agent-launcher "$@"
-  elif [[ -x $OAL_PLUGIN_BIN ]]; then "$OAL_PLUGIN_BIN" "$@"
+oal() { # Agent Launcher by its installed plugin path, or a system-wide install; never ~/.local/bin
+  if [[ -f $OAL_PLUGIN_BIN && -x $OAL_PLUGIN_BIN ]]; then "$OAL_PLUGIN_BIN" "$@"
+  elif have omarchy-agent-launcher; then omarchy-agent-launcher "$@"
   else return 127; fi
 }
 

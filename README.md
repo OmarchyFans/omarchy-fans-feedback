@@ -46,7 +46,15 @@ omarchy restart shell
 `install.sh` asks before each step: the `omarchy-feedback` command on your PATH,
 the SUPER + ALT + B keybinding (it never replaces an existing binding), a Feedback
 section in the Omarchy menu, and the viewer as an installed web app.
-`uninstall.sh` reverses it; `--purge` also deletes your issues.
+## Remove
+
+```
+~/.config/omarchy/plugins/fans.omarchy.feedback/uninstall.sh   # add --purge to also delete your issues
+omarchy plugin remove fans.omarchy.feedback --yes
+```
+
+`uninstall.sh` stops the recorder, removes the keybinding, menu section, web app and command link
+that `install.sh` added, and keeps `~/.local/state/omarchy-feedback` unless you pass `--purge`.
 
 ## Commands
 

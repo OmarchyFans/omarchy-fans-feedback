@@ -1,243 +1,142 @@
 #!/bin/bash
-# End-to-end tests under throwaway XDG dirs with every external tool stubbed
-# (tests/stubs on PATH, gum wrappers replaced by scripted answers). Real git,
-# jq and sqlite3 are used. Nothing here touches the network or the real shell.
+# Tests for omarchy-feedback. Everything runs under throwaway XDG dirs with a
+# fake Hyprland (tests/fakehypr.py) and stubbed desktop tools on PATH; real
+# python3, sqlite3, jq and git are used. Nothing touches the real session.
+#   tests/run.sh [group...]     groups: unit lua daemon (default: all)
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d)
+FAKE_PID=""
+cleanup() {
+  [[ -n $FAKE_PID ]] && { touch "$T/hypr/quit"; wait "$FAKE_PID" 2>/dev/null || true; }
+  if [[ -S $T/run/ctl.sock ]]; then OF_RUNTIME="$T/run" python3 "$ROOT/lib/ofctl.py" stop >/dev/null 2>&1 || true; sleep 0.3; fi
+  rm -rf "$T"
+}
+trap cleanup EXIT
+
 export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_STATE_HOME="$T/state" XDG_DATA_HOME="$T/data"
-export BF_UI_STUBS="$ROOT/tests/ui-stubs.sh" BF_ANSWERS="$T/answers" BF_ASKED="$T/asked" BF_TEST_LOG="$T/log" BF_TEST_DIR="$T"
+export XDG_RUNTIME_DIR="$T/xdg-run" OF_RUNTIME="$T/run" OF_STATE="$T/state/omarchy-feedback" OF_HYPR_DIR="$T/hypr"
+export OF_UI_STUBS="$ROOT/tests/ui-stubs.sh" OF_ANSWERS="$T/answers" OF_ASKED="$T/asked" OF_TEST_LOG="$T/log" OF_TEST_DIR="$T"
+export OF_TICK=0.2 OF_HYPR_WAIT=5 PYTHONDONTWRITEBYTECODE=1
 export PATH="$ROOT/tests/stubs:$PATH" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"; : >"$BF_TEST_LOG"; : >"$BF_ASKED"; : >"$BF_ANSWERS"
-B="$ROOT/bin/omarchy-beta-feedback"
-pass() { echo "  ok   $*"; }; tfail() { echo "  FAIL $*"; [[ -s $BF_TEST_LOG ]] && { echo "--- log"; cat "$BF_TEST_LOG"; }; exit 1; }
+mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_RUNTIME_DIR"
+: >"$OF_TEST_LOG"; : >"$OF_ASKED"; : >"$OF_ANSWERS"
+B="$ROOT/bin/omarchy-feedback"
+pass() { echo "  ok   $*"; }
+tfail() { echo "  FAIL $*"; [[ -s $OF_TEST_LOG ]] && { echo "--- log"; tail -n 30 "$OF_TEST_LOG"; }; [[ -s $OF_RUNTIME/daemon.log ]] && { echo "--- daemon.log"; tail -n 20 "$OF_RUNTIME/daemon.log"; }; exit 1; }
 j() { jq -r "$1" <<<"$2"; }
+wait_for() { # wait_for <seconds> <command...>
+  local n=$(( $1 * 10 )); shift
+  while (( n-- > 0 )); do "$@" && return 0; sleep 0.1; done
+  return 1
+}
+seg_has() { cat "$OF_RUNTIME"/seg/*.jsonl 2>/dev/null | grep -q -- "$1"; }
+daemon_gone() { ! pgrep -f "^python3 $ROOT/lib/feedbackd.py" >/dev/null; }
 
-# ---- a fake "upstream" repo (bare) with main + staging, and an installed clone of it
-UP="$T/upstream.git"; SRC="$T/src"; PL="$XDG_CONFIG_HOME/omarchy/plugins"; ID=test.plugin
-git init -q -b main "$SRC"
-cat >"$SRC/manifest.json" <<M
-{"schemaVersion":1,"id":"$ID","name":"Test","version":"1.0.0","kinds":["bar-widget"],"entryPoints":{"barWidget":"Panel.qml"}}
-M
-echo 'Item {}' >"$SRC/Panel.qml"; mkdir -p "$SRC/lib" "$SRC/tests"; echo 'echo thing' >"$SRC/lib/thing.sh"
-printf '#!/bin/bash\ngrep -q "fixed by agent" lib/thing.sh\n' >"$SRC/tests/run.sh"; chmod +x "$SRC/tests/run.sh"
-git -C "$SRC" add -A && git -C "$SRC" commit -qm "v1"
-git init -q --bare "$UP"; git -C "$UP" symbolic-ref HEAD refs/heads/main
-git -C "$SRC" remote add origin "$UP"; git -C "$SRC" push -q origin main
-mkdir -p "$PL"; git clone -q "$UP" "$PL/$ID"
+start_fakehypr() {
+  [[ -n $FAKE_PID ]] && return 0
+  python3 "$ROOT/tests/fakehypr.py" "$OF_HYPR_DIR" &
+  FAKE_PID=$!
+  wait_for 5 test -e "$OF_HYPR_DIR/ready" || tfail "fake Hyprland did not start"
+}
+hypr_emit() { printf '%s\n' "$@" >>"$OF_HYPR_DIR/emit"; }
 
-echo "== status of an unknown plugin"
-s=$("$B" status $ID); [[ $(j .status "$s") == unknown && $(j .consented "$s") == false ]] || tfail "unknown status: $s"
-[[ $(j .hasRepo "$s") == false ]] || tfail "no github origin yet should mean hasRepo=false"
-[[ -d $XDG_STATE_HOME/omarchy-beta-feedback/shots ]] || tfail "status must create shots dir"
-pass "status unknown, shots dir created"
+GROUPS_ALL=(unit lua daemon)
+want() { local g; for g in "${SELECTED[@]}"; do [[ $g == "$1" ]] && return 0; done; return 1; }
+SELECTED=("$@"); (( ${#SELECTED[@]} )) || SELECTED=("${GROUPS_ALL[@]}")
 
-echo "== author init vendors the SDK, config, staging"
-printf 'modpunk/test-plugin\n' >"$BF_ANSWERS"   # origin is a local bare repo, so init asks for the GitHub slug
-"$B" author init "$SRC" >/dev/null || tfail "author init"
-grep -q "input: GitHub repo" "$BF_ASKED" || tfail "slug prompt"
-[[ -f $SRC/BetaFeedback.qml && -f $SRC/.beta-feedback.json ]] || tfail "vendored files"
-[[ $(jq -r .repo "$SRC/.beta-feedback.json") == "modpunk/test-plugin" ]] || tfail "repo slug: $(cat "$SRC/.beta-feedback.json")"
-git -C "$SRC" show-ref --verify --quiet refs/heads/staging || tfail "staging branch"
-grep -q "gh label create beta-feedback" "$BF_TEST_LOG" || tfail "labels"
-git -C "$SRC" add -A && git -C "$SRC" commit -qm "enroll in beta program" && git -C "$SRC" push -q origin main staging
-git -C "$PL/$ID" pull -q --ff-only origin main
-pass "author init"
-
-echo "== enroll + days-used clock + expiry"
-export BF_NOW=2026-09-08
-s=$("$B" status $ID); [[ $(j .hasRepo "$s") == true && $(j .repo "$s") == modpunk/test-plugin ]] || tfail "hasRepo after config: $s"
-"$B" enroll $ID >/dev/null || tfail enroll
-s=$("$B" status $ID); [[ $(j .status "$s") == enrolled && $(j .daysUsed "$s") == 1 && $(j .daysLeft "$s") == 4 ]] || tfail "day1: $s"
-s=$("$B" status $ID); [[ $(j .daysUsed "$s") == 1 ]] || tfail "same day must not double count"
-for d in 09 10 11 12; do BF_NOW=2026-09-$d "$B" status $ID >/dev/null; done
-s=$(BF_NOW=2026-09-12 "$B" status $ID); [[ $(j .daysUsed "$s") == 5 && $(j .status "$s") == enrolled ]] || tfail "day5: $s"
-s=$(BF_NOW=2026-09-20 "$B" status $ID); [[ $(j .status "$s") == expired ]] || tfail "expiry: $s"
-grep -q "Beta program ended" "$BF_TEST_LOG" || tfail "expiry notification"
-"$B" enroll $ID >/dev/null; s=$("$B" status $ID); [[ $(j .status "$s") == enrolled ]] || tfail "re-enroll"
-"$B" unenroll other.plugin --declined >/dev/null; [[ $(j .status "$("$B" status other.plugin)") == declined ]] || tfail "declined"
-pass "enroll / clock / expiry / re-enroll / declined"
-
-echo "== report via gh: bundle, annotation, body, clipboard, record"
-printf 'x' >"$XDG_STATE_HOME/omarchy-beta-feedback/shots/s.png"
-printf 'bug\nLaunch does nothing\nClicked launch twice, nothing happened.\nSubmit to github.com/modpunk/test-plugin (gh)\n' >"$BF_ANSWERS"
-out=$("$B" report --plugin $ID --branch main --shot "$XDG_STATE_HOME/omarchy-beta-feedback/shots/s.png" \
-       --context '[{"t":1,"b":1,"at":"Button[Launch]"},{"t":2,"b":2,"at":"TextField#name"}]' --no-popup 2>&1) || { echo "$out"; tfail "report"; }
-bd=$(ls -d "$XDG_STATE_HOME"/omarchy-beta-feedback/bundles/*-$ID | head -n1)
-[[ -s $bd/annotated.png && -s $bd/panel.png && -s $bd/env.json && -s $bd/trace.json && -s $bd/body.md ]] || tfail "bundle files: $(ls "$bd")"
-grep -q "annotated" "$bd/annotated.png" || tfail "tensaku output not used"
-grep -q "tensaku -f" "$BF_TEST_LOG" || tfail "tensaku called"
-grep -q 'left click on `Button\[Launch\]`' "$bd/body.md" || tfail "trace in body"
-grep -q 'right click on `TextField#name`' "$bd/body.md" || tfail "right click"
-grep -q "ReferenceError" "$bd/body.md" || tfail "shell log in body"
-grep -q "DEBUG" "$bd/body.md" && ! grep -q $'\e' "$bd/body.md" || tfail "ansi stripped"
-grep -q "| Hyprland | v0.56.0 |" "$bd/body.md" || tfail "env table"
-grep -q "<!-- beta-feedback kind=bug reporter=bf-" "$bd/body.md" || tfail "marker"
-grep -q "gh issue create -R modpunk/test-plugin --title Launch does nothing --body-file .* --label beta-feedback" "$BF_TEST_LOG" || tfail "gh issue create"
-grep -q "wl-copy --type image/png" "$BF_TEST_LOG" || tfail "screenshot on clipboard"
-grep -q "Screenshot copied" "$BF_TEST_LOG" || tfail "paste notification"
-r=$(tail -n1 "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl")
-[[ $(j .issue "$r") == 42 && $(j .status "$r") == open && $(j .plugin "$r") == $ID ]] || tfail "report record: $r"
-s=$("$B" status $ID); [[ $(j '.reports|length' "$s") == 1 ]] || tfail "status lists reports"
-pass "gh report"
-
-echo "== report via browser when gh is not authenticated"
-: >"$BF_TEST_LOG"
-printf 'feature\nAdd dark icons\n\nOpen github.com/modpunk/test-plugin in the browser\n' >"$BF_ANSWERS"
-BF_GH_NOAUTH=1 "$B" report --plugin $ID --branch main --context '[]' --no-popup >/dev/null 2>&1 || tfail "browser report"
-grep -q "xdg-open https://github.com/modpunk/test-plugin/issues/new?title=Add%20dark%20icons&body=.*labels=beta-feedback" "$BF_TEST_LOG" || tfail "browser url"
-r=$(tail -n1 "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl"); [[ $(j .status "$r") == browser && $(j .issue "$r") == null ]] || tfail "browser record"
-pass "browser report"
-
-echo "== bundle-only"
-printf 'bug\nOffline one\nno network\nSave the bundle only (nothing leaves this machine)\n' >"$BF_ANSWERS"; : >"$BF_TEST_LOG"
-"$B" report --plugin $ID --context '[]' --no-popup >/dev/null 2>&1 || tfail "bundle-only"
-grep -q "gh issue create\|xdg-open" "$BF_TEST_LOG" && tfail "bundle-only must not submit"
-pass "bundle-only"
-
-echo "== poll: browser report gets its number by marker search; fixed-in-beta triggers the update nudge"
-bb=$(jq -r 'select(.status=="browser") | .bundle' "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl")
-echo "{\"items\":[{\"number\":43,\"html_url\":\"https://github.com/modpunk/test-plugin/issues/43\",\"state\":\"open\",\"labels\":[{\"name\":\"beta-feedback\"}]}]}" >"$T/search.json"
-cat >"$T/api.json" <<A
-[{"number":42,"title":"Launch does nothing","state":"open","labels":[{"name":"beta-feedback"},{"name":"fixed-in-beta"}],"updated_at":"2026-09-09T00:00:00Z","html_url":"https://github.com/modpunk/test-plugin/issues/42","body":"x"},
- {"number":43,"title":"Add dark icons","state":"open","labels":[{"name":"beta-feedback"}],"updated_at":"2026-09-09T00:00:00Z","html_url":"https://github.com/modpunk/test-plugin/issues/43","body":"y"}]
-A
-# put a fix on staging upstream so ls-remote differs from the installed sha
-git -C "$SRC" switch -q staging && echo fix >>"$SRC/lib/thing.sh" && git -C "$SRC" commit -qam "fix on staging" && git -C "$SRC" push -q origin staging && git -C "$SRC" switch -q main
-: >"$BF_TEST_LOG"
-BF_GH_SEARCH_FILE="$T/search.json" BF_GH_API_FILE="$T/api.json" "$B" poll || tfail "poll"
-r=$(jq -c "select(.bundle==\"$bb\")" "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl"); [[ $(j .issue "$r") == 43 && $(j .status "$r") == open ]] || tfail "marker match: $r"
-r=$(jq -c 'select(.issue==42)' "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl"); [[ $(j .status "$r") == fixed-in-beta ]] || tfail "label → status: $r"
-s=$("$B" status $ID); [[ $(j .updateAvailable "$s") == true ]] || tfail "updateAvailable: $s"
-grep -q "test.plugin: a fix for your report is ready to test .* --exec .*omarchy-beta-feedback update test.plugin --channel beta" "$BF_TEST_LOG" || tfail "nudge notification"
-: >"$BF_TEST_LOG"; BF_GH_SEARCH_FILE="$T/search.json" BF_GH_API_FILE="$T/api.json" "$B" poll; grep -q "notify" "$BF_TEST_LOG" && tfail "must not nag twice for the same sha"
-info=$("$B" info); [[ $(j '.updates|length' "$info") == 1 && $(j .enrolled "$info") == 1 ]] || tfail "info: $info"
-pass "poll"
-
-echo "== update --channel beta switches the installed clone; validation failure rolls back; stable returns"
-"$B" update $ID --channel beta >/dev/null || tfail "update beta"
-[[ $(git -C "$PL/$ID" rev-parse --abbrev-ref HEAD) == staging ]] || tfail "not on staging"
-grep -q "fix" "$PL/$ID/lib/thing.sh" || tfail "beta content"
-s=$("$B" status $ID); [[ $(j .channel "$s") == beta && $(j .updateAvailable "$s") == false ]] || tfail "channel after update: $s"
-"$B" update $ID --channel beta | grep -q "already on staging" || tfail "idempotent"
-# a broken beta must be rolled back
-git -C "$SRC" switch -q staging && touch "$SRC/BREAK" && git -C "$SRC" add -A && git -C "$SRC" commit -qm "broken" && git -C "$SRC" push -q origin staging && git -C "$SRC" switch -q main
-prev=$(git -C "$PL/$ID" rev-parse HEAD)
-"$B" update $ID --channel beta >/dev/null 2>&1 && tfail "broken beta must fail"
-[[ $(git -C "$PL/$ID" rev-parse HEAD) == "$prev" && ! -f $PL/$ID/BREAK ]] || tfail "rollback"
-"$B" update $ID --channel stable >/dev/null || tfail "back to stable"
-[[ $(git -C "$PL/$ID" rev-parse --abbrev-ref HEAD) == main ]] || tfail "not on main"
-echo dirty >>"$PL/$ID/Panel.qml"; "$B" update $ID --channel beta >/dev/null 2>&1 && tfail "dirty clone must refuse"; git -C "$PL/$ID" checkout -q Panel.qml
-pass "update / rollback / stable / dirty guard"
-
-echo "== confirm posts a verdict"
-: >"$BF_TEST_LOG"; "$B" confirm $ID 42 --works >/dev/null || tfail confirm
-grep -q "gh issue comment 42 -R modpunk/test-plugin --body-file" "$BF_TEST_LOG" || tfail "comment"
-r=$(jq -c 'select(.issue==42)' "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl"); [[ $(j .confirmed "$r") == works ]] || tfail "confirmed recorded"
-pass "confirm"
-
-echo "== author: sync → inbox json → approve → repair with the stub agent → PR → fixed → promote"
-cat >"$T/api2.json" <<A
-[{"number":42,"title":"Launch does nothing","state":"open","labels":[{"name":"beta-feedback"}],"updated_at":"2026-09-09T00:00:00Z","html_url":"https://github.com/modpunk/test-plugin/issues/42","body":"Clicked twice.\n\n<!-- beta-feedback kind=bug reporter=bf-abc12345 bundle=x plugin=test.plugin -->"},
- {"number":43,"title":"Add dark icons","state":"open","labels":[{"name":"beta-feedback"},{"name":"approved"}],"updated_at":"2026-09-09T00:00:00Z","html_url":"https://github.com/modpunk/test-plugin/issues/43","body":"y"}]
-A
-git -C "$SRC" switch -q staging && git -C "$SRC" reset -q --hard HEAD~1 && git -C "$SRC" push -q -f origin staging && git -C "$SRC" switch -q main
-q=$(BF_GH_API_FILE="$T/api2.json" "$B" author inbox --json) || tfail "inbox json"
-q=$(jq -c '[.[] | select(.number==42)]' <<<"$q")
-[[ $(j '.[0].number' "$q") == 42 && $(j '.[0].status' "$q") == new && $(j '.[0].plugin' "$q") == test.plugin && $(j '.[0].reporter' "$q") == bf-abc12345 ]] || tfail "queue: $q"
-"$B" author approve modpunk/test-plugin 42 >/dev/null || tfail approve
-grep -q "gh issue edit 42 -R modpunk/test-plugin --add-label approved" "$BF_TEST_LOG" || tfail "approve label"
-: >"$BF_TEST_LOG"
-"$B" author repair modpunk/test-plugin 42 --merge >/dev/null 2>&1 || { tail -n 20 "$BF_TEST_LOG"; tfail "repair"; }
-grep -q "claude -p --permission-mode acceptEdits" "$BF_TEST_LOG" || tfail "claude invoked"
-grep -q "UNTRUSTED" "$T/claude-prompt.md" && grep -q "Clicked twice" "$T/claude-prompt.md" && grep -q 'tests/run.sh' "$T/claude-prompt.md" || tfail "prompt rendering"
-wt="$XDG_STATE_HOME/omarchy-beta-feedback/work/modpunk_test-plugin-42"
-git -C "$wt" log -1 --format=%s | grep -q "Fix #42" || tfail "commit"
-git -C "$UP" show-ref --verify --quiet refs/heads/fix/issue-42 || tfail "branch pushed"
-grep -q "gh pr create -R modpunk/test-plugin --base staging --head fix/issue-42" "$BF_TEST_LOG" || tfail "pr"
-grep -q "gh issue edit 42 -R modpunk/test-plugin --add-label fixed-in-beta" "$BF_TEST_LOG" || tfail "fixed label"
-q=$("$B" author inbox --json --no-sync); [[ $(jq -r '.[] | select(.number==42) | .status' <<<"$q") == fixed-in-beta ]] || tfail "status after repair: $q"
-: >"$BF_TEST_LOG"; BF_AGENT_NOOP=1 BF_GH_API_FILE="$T/api2.json" "$B" author repair modpunk/test-plugin 43 --no-push >/dev/null 2>&1 && tfail "noop agent must fail"
-q=$("$B" author inbox --json --no-sync); [[ $(jq -r '.[] | select(.number==43) | .status' <<<"$q") == approved ]] || tfail "noop leaves status approved: $q"
-: >"$BF_TEST_LOG"; "$B" author promote modpunk/test-plugin 42 >/dev/null || tfail promote
-grep -q "gh pr create -R modpunk/test-plugin --base main --head staging" "$BF_TEST_LOG" || tfail "release pr"
-grep -q "gh issue edit 42 -R modpunk/test-plugin --add-label released" "$BF_TEST_LOG" || tfail "released label"
-pass "author loop"
-
-echo "== keylog: the Lua chunks sent to hyprctl eval, under a mock hl"
-L="$T/lua"; mkdir -p "$L"
-python3 "$ROOT/lib/keylog.py" lua arm --raw "$L/raw" >"$L/arm.lua"
-python3 "$ROOT/lib/keylog.py" lua arm --raw "$L/raw" --all-keys >"$L/armall.lua"
-python3 "$ROOT/lib/keylog.py" lua disarm >"$L/disarm.lua"
-if command -v lua >/dev/null; then
-  lua "$ROOT/tests/keylog_lua_test.lua" "$L/arm.lua" "$L/armall.lua" "$L/disarm.lua" >/dev/null || tfail "lua chunk test"
-  expected=$'K ? 1 0\nK ? 0 0\nK 50 1 0\nK 113 1 0\nK 113 0 0\nK 50 0 0\nK 37 1 0\nK 54 1 0\nK 54 0 0\nK 37 0 0\nK 108 1 0\nK ? 1 0\nK ? 0 0\nK 108 0 0\nK 202 1 0\nS resize\nK 38 1 0'
-  [[ $(cat "$L/raw") == "$expected" ]] || tfail "lua redaction output: $(cat "$L/raw")"
-  pass "lua redaction (letters hidden, shortcuts and navigation shown, pause, idempotent arm, disarm)"
-else
-  echo "  skip lua redaction (lua not installed)"
+# ---------------------------------------------------------------------------
+if want unit; then
+  echo "== unit: rolling log, key decoder, Hyprland parsing"
+  python3 "$ROOT/tests/test_events.py" >"$T/unit.out" 2>&1 || { cat "$T/unit.out"; tfail "python unit tests"; }
+  pass "python unit tests"
 fi
 
-echo "== record: start → key log → pause on lock → stop → timeline"
-export BF_REC_RUNTIME="$T/run" BF_REC_RECORDER_FILE="$T/recorder-file" BF_HYPR_SOCKET2="$T/no-socket"
-: >"$BF_TEST_LOG"
-"$B" record start >/dev/null || tfail "record start"
-st=$("$B" record status --json); [[ $(j .recording "$st") == true && $(j .videoRecording "$st") == true ]] || tfail "status after start: $st"
-for _ in $(seq 50); do [[ -s $BF_REC_RUNTIME/overlay.json ]] && break; sleep 0.1; done
-[[ -s $BF_REC_RUNTIME/overlay.json ]] || tfail "overlay.json not written: $(cat "$XDG_STATE_HOME"/omarchy-beta-feedback/bundles/*-desktop-recording/helper.log 2>/dev/null)"
-[[ $(stat -c %a "$BF_REC_RUNTIME/keys.raw") == 600 ]] || tfail "raw key file must be 0600"
-grep -q "hyprctl eval local paused, all = false, false" "$BF_TEST_LOG" || tfail "listener armed"
-grep -q "omarchy capture screenrecording --fullscreen" "$BF_TEST_LOG" || tfail "recorder started"
-printf 'K 50 1 0\nK 113 1 0\nK 113 0 0\nK 50 0 0\nK ? 1 0\nK ? 0 0\n' >>"$BF_REC_RUNTIME/keys.raw"
-for _ in $(seq 30); do grep -q 'Shift+Left' "$BF_REC_RUNTIME/overlay.json" 2>/dev/null && break; sleep 0.1; done
-grep -q 'Shift+Left' "$BF_REC_RUNTIME/overlay.json" || tfail "overlay shows the combo: $(cat "$BF_REC_RUNTIME/overlay.json")"
-touch "$T/locked"
-for _ in $(seq 30); do grep -q '"paused": true' "$BF_REC_RUNTIME/overlay.json" 2>/dev/null && break; sleep 0.1; done
-grep -q '"paused": true' "$BF_REC_RUNTIME/overlay.json" || tfail "pause on lock"
-grep -q "hyprctl eval local paused, all = true, false" "$BF_TEST_LOG" || tfail "listener told to pause"
-rm -f "$T/locked"; sleep 1.3
-"$B" record stop --no-report >/dev/null || tfail "record stop"
-[[ ! -e $BF_REC_RUNTIME/keys.raw && ! -e $BF_REC_RUNTIME/overlay.json && ! -e $BF_REC_RUNTIME/recording.json ]] || tfail "runtime files left: $(ls "$BF_REC_RUNTIME")"
-[[ ! -f $T/recording ]] && grep -q "omarchy capture screenrecording --stop-recording" "$BF_TEST_LOG" || tfail "recorder stopped"
-grep -q "hyprctl eval local r = _G.bfrec" "$BF_TEST_LOG" || tfail "listener disarmed"
-rb=$(ls -d "$XDG_STATE_HOME"/omarchy-beta-feedback/bundles/*-desktop-recording | head -n1)
-[[ -s $rb/timeline.txt && -s $rb/events.jsonl && -s $rb/binds.json && -s $rb/input.json && -s $rb/summary.json ]] || tfail "recording bundle: $(ls "$rb")"
-grep -q 'key  down  Shift+Left   => Hyprland bind: Test swap left' "$rb/timeline.txt" || tfail "timeline + bind match: $(cat "$rb/timeline.txt")"
-grep -q 'key  down  •' "$rb/timeline.txt" && grep -q 'LOCKED: key log paused' "$rb/timeline.txt" || tfail "redaction/lock in timeline"
-[[ $(jq -r .videoSaved "$rb/session.json") == true ]] || tfail "session videoSaved"
-st=$("$B" record status --json); [[ $(j .recording "$st") == false ]] || tfail "status after stop: $st"
-"$B" record stop >/dev/null 2>&1 && tfail "stop without a recording must fail"
-pass "record start / key log / lock pause / stop / timeline"
+if want lua; then
+  echo "== lua: the chunks sent to hyprctl eval, under a mock hl"
+  if command -v lua >/dev/null; then
+    L="$T/lua"; mkdir -p "$L"
+    PY="import sys; sys.path.insert(0, '$ROOT/lib'); import of_keys as k"
+    python3 -c "$PY; print(k.lua_arm('$L/raw'), end='')" >"$L/arm.lua"
+    python3 -c "$PY; print(k.lua_arm('$L/raw', all_keys=True), end='')" >"$L/armall.lua"
+    python3 -c "$PY; print(k.LUA_DISARM, end='')" >"$L/disarm.lua"
+    lua "$ROOT/tests/lua_listener_test.lua" "$L/arm.lua" "$L/armall.lua" "$L/disarm.lua" >/dev/null || tfail "lua chunk test"
+    expected=$'K ? 1 0\nK ? 0 0\nK 50 1 0\nK 113 1 0\nK 113 0 0\nK 50 0 0\nK 37 1 0\nK 54 1 0\nK 54 0 0\nK 37 0 0\nK 108 1 0\nK ? 1 0\nK ? 0 0\nK 108 0 0\nK 202 1 0\nS resize\nK 38 1 0'
+    [[ $(cat "$L/raw") == "$expected" ]] || tfail "lua redaction output: $(cat "$L/raw")"
+    pass "letters hidden, shortcuts shown, pause, idempotent re-arm, disarm"
+  else
+    echo "  skip (lua not installed)"
+  fi
+fi
 
-echo "== report --bundle about the desktop: recording section, no label"
-printf 'bug\nShift+Left does not select\nIn text fields.\nSave the bundle only (nothing leaves this machine)\n' >"$BF_ANSWERS"; : >"$BF_TEST_LOG"
-"$B" report --bundle "$rb" --no-popup >/dev/null 2>&1 || tfail "desktop report"
-grep -q '| Target | Omarchy desktop |' "$rb/body.md" && grep -q '| Input method | none |' "$rb/body.md" || tfail "desktop rows: $(cat "$rb/body.md")"
-grep -q '\*\*Troubleshooting recording\*\*' "$rb/body.md" && grep -q '`Shift+Left -> Test swap left`' "$rb/body.md" || tfail "recording section: $(cat "$rb/body.md")"
-grep -q 'plugin=desktop -->' "$rb/body.md" || tfail "desktop marker"
-r=$(tail -n1 "$XDG_STATE_HOME/omarchy-beta-feedback/reports.jsonl"); [[ $(j .plugin "$r") == desktop && $(j .status "$r") == local ]] || tfail "desktop record: $r"
-printf 'bug\nAgain\n\nOpen github.com/omacom/omarchy in the browser\n' >"$BF_ANSWERS"; : >"$BF_TEST_LOG"
-BF_GH_NOAUTH=1 "$B" report --bundle "$rb" --no-popup >/dev/null 2>&1 || tfail "desktop browser report"
-grep -q "xdg-open https://github.com/omacom/omarchy/issues/new?title=Again&body=" "$BF_TEST_LOG" && ! grep -q "labels=" "$BF_TEST_LOG" || tfail "desktop url must carry no label: $(cat "$BF_TEST_LOG")"
-grep -q "Attach the recording" "$BF_TEST_LOG" || tfail "video attach hint"
-"$B" report --bundle "$T" --no-popup >/dev/null 2>&1 && tfail "--bundle outside the bundles dir must be refused"
-pass "desktop report"
+if want daemon; then
+  echo "== daemon: ensure, events, keys, lock pause, snapshot, pause/resume, stop"
+  start_fakehypr
+  "$B" daemon ensure || tfail "daemon ensure"
+  "$B" daemon ensure || tfail "second ensure must be a no-op"
+  [[ $(pgrep -fc "^python3 $ROOT/lib/feedbackd.py") == 1 ]] || tfail "exactly one daemon expected, got $(pgrep -fc "^python3 $ROOT/lib/feedbackd.py")"
+  st=$("$B" daemon status) || tfail "status"
+  [[ $(j .running "$st") == true && $(j .keyListener "$st") == true && $(j .hyprland "$st") == true ]] || tfail "status: $st"
+  grep -q "hyprctl eval local paused, all = false, false" "$OF_TEST_LOG" || tfail "key listener armed"
+  [[ $(stat -c %a "$OF_RUNTIME") == 700 && $(stat -c %a "$OF_RUNTIME/keys.raw") == 600 && $(stat -c %a "$OF_RUNTIME/ctl.sock") == 600 ]] \
+    || tfail "runtime permissions"
+  [[ -s $OF_RUNTIME/status.json ]] || tfail "status.json heartbeat"
 
-echo "== info: joinable betas, set-up candidates, desktop reports, recording state"
-mkdir -p "$PL/other.beta" "$PL/no.beta"
-echo '{"id":"other.beta","name":"Other"}' >"$PL/other.beta/manifest.json"; echo '{"repo":"someone/other"}' >"$PL/other.beta/.beta-feedback.json"
-echo '{"id":"no.beta","name":"No beta"}' >"$PL/no.beta/manifest.json"
-git init -q "$T/nobeta-src"; git -C "$PL/no.beta" init -q; git -C "$PL/no.beta" remote add origin "$T/nobeta-src"
-info=$("$B" info)
-[[ $(j '.available[] | select(.plugin=="other.beta") | .beta' "$info") == true ]] || tfail "joinable beta: $info"
-[[ $(j '.available[] | select(.plugin=="no.beta") | .beta' "$info") == false && $(j '.available[] | select(.plugin=="no.beta") | .source' "$info") == "$T/nobeta-src" ]] || tfail "set-up candidate: $info"
-[[ -z $(j '.available[] | select(.plugin=="test.plugin") | .plugin' "$info") ]] || tfail "enrolled plugins must not be listed as available"
-[[ $(j '.desktopReports | length' "$info") == 2 && $(j .recording.recording "$info") == false ]] || tfail "desktop reports / recording: $info"
-pass "info"
+  hypr_emit "activewindow>>org.omarchy.agent,Rix · chat" "openlayer>>omarchy-menu" "mouse>>ignored"
+  wait_for 5 seg_has '"class":"org.omarchy.agent"' || tfail "window event not logged"
+  wait_for 5 seg_has '"type":"cursor"' || tfail "cursor sampled after focus/layer change"
+  seg_has 'ignored' && tfail "unknown socket2 events must not be logged"
+  printf 'K 133 1 0\nK 36 1 0\nK 36 0 0\nK 133 0 0\nK ? 1 0\nK ? 0 0\n' >>"$OF_RUNTIME/keys.raw"
+  wait_for 5 seg_has '"combo":"Super+Enter"' || tfail "key combo not logged"
+  seg_has '"redacted":true' || tfail "redacted key press not logged as redacted"
+  [[ $(stat -c %a "$OF_RUNTIME"/seg/*.jsonl | sort -u) == 600 ]] || tfail "segment permissions"
+  pass "window, layer, cursor and key events reach the rolling log"
 
-echo "== validator-friendly tree: no symlinks, manifest ok"
+  : >"$OF_TEST_LOG"
+  touch "$OF_HYPR_DIR/locked"
+  wait_for 5 seg_has '"type":"lock","locked":true' || tfail "lock not detected"
+  grep -q "hyprctl eval local paused, all = true, false" "$OF_TEST_LOG" || tfail "key listener paused on lock"
+  rm -f "$OF_HYPR_DIR/locked"
+  wait_for 5 seg_has '"type":"lock","locked":false' || tfail "unlock not detected"
+  pass "key listener pauses while locked"
+
+  out=$("$B" snap "$T/issue/events.jsonl" 10) || tfail "snap"
+  [[ $(j .ok "$out") == true ]] && (( $(j .events "$out") >= 4 )) || tfail "snap result: $out"
+  grep -q '"combo":"Super+Enter"' "$T/issue/events.jsonl" && grep -q '"type":"mark"' "$T/issue/events.jsonl" || tfail "snapshot content"
+  desc=$(python3 "$ROOT/lib/ofctl.py" describe "$T/issue/events.jsonl")
+  grep -q "focus org.omarchy.agent — Rix · chat" <<<"$desc" && grep -q "key Super+Enter" <<<"$desc" || tfail "describe: $desc"
+  pass "snapshot copies the recent window and renders a timeline"
+
+  "$B" pause >/dev/null || tfail pause
+  [[ $(jq -r .paused "$OF_STATE/settings.json") == true ]] || tfail "pause persisted"
+  hypr_emit "activewindow>>secret.app,should not be logged"
+  sleep 0.6
+  seg_has "secret.app" && tfail "events logged while paused"
+  "$B" resume >/dev/null || tfail resume
+  hypr_emit "activewindow>>kitty,after resume"
+  wait_for 5 seg_has "after resume" || tfail "events after resume"
+  pass "pause stops the log and persists; resume restarts it"
+
+  : >"$OF_TEST_LOG"
+  "$B" daemon stop || tfail "stop"
+  wait_for 5 daemon_gone || tfail "daemon still running"
+  grep -q "hyprctl eval local r = _G.ofrec" "$OF_TEST_LOG" || tfail "Lua listener disarmed on stop"
+  [[ ! -e $OF_RUNTIME/keys.raw && ! -e $OF_RUNTIME/ctl.sock && ! -e $OF_RUNTIME/status.json ]] || tfail "runtime files left: $(ls "$OF_RUNTIME")"
+  st=$("$B" daemon status) && tfail "status must fail when stopped"
+  [[ $(j .running "$st") == false ]] || tfail "stopped status: $st"
+  out=$("$B" snap "$T/issue/fallback.jsonl" 10) || tfail "fallback snap"
+  [[ $(j .fallback "$out") == true ]] && grep -q "after resume" "$T/issue/fallback.jsonl" || tfail "fallback snap reads segments: $out"
+  pass "stop disarms and cleans up; snap still works from the segments"
+
+  "$B" daemon ensure || tfail "restart after stop"
+  touch "$OF_HYPR_DIR/quit"; wait "$FAKE_PID" 2>/dev/null || true; FAKE_PID=""
+  wait_for 5 daemon_gone || tfail "daemon must exit when Hyprland goes away"
+  pass "daemon exits when Hyprland's event socket closes"
+fi
+
+echo "== tree: no symlinks, no __pycache__, manifest"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -type l -print) ]] || tfail "symlink in tree"
-jq -e '.id=="fans.omarchy.beta-feedback" and .entryPoints.barWidget=="Panel.qml"' "$ROOT/manifest.json" >/dev/null || tfail manifest
-cmp -s "$ROOT/sdk/BetaFeedback.qml" "$ROOT/BetaFeedback.qml" || tfail "root BetaFeedback.qml must mirror sdk/"
+[[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -name __pycache__ -print) ]] || tfail "__pycache__ created in the tree"
+jq -e '.id=="fans.omarchy.feedback" and .entryPoints.barWidget=="Panel.qml"' "$ROOT/manifest.json" >/dev/null || tfail manifest
 pass "tree"
 echo "All tests passed."

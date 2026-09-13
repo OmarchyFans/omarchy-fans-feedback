@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "fans.omarchy.beta-feedback",
-  "name": "Beta Feedback",
-  "version": "0.2.0",
+  "id": "fans.omarchy.feedback",
+  "name": "Feedback",
+  "version": "0.3.0",
   "author": "modpunk (omarchy.fans)",
   "license": "MIT",
-  "description": "Beta program for Omarchy plugins: end users opt in, get a bug button inside enrolled plugins, and file reports carrying the last 10 clicks, a panel-only screenshot they annotate, and version info. A troubleshooting recording captures the focused screen with an on-screen key display and a timestamped log of key presses (typed text hidden by default) and desktop events, for bugs in plugins or the desktop itself. Reports become GitHub issues on the plugin's repo; authors triage them, let an agent fix them on a staging branch, and testers get an update-ready notification.",
+  "description": "Record feedback about anything on your Omarchy desktop: a plugin, an app, a window, or Omarchy itself. A small always-on event log (window focus and shortcuts, never typed text; paused while locked) and an optional screen replay show what led up to the issue. Press the bug to capture a screenshot you can mark up, file it in a local issue list, and send it to Rix, your coding agent, or the author. A local web viewer replays the lead-up and exports PDF or Markdown.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,12 +13,13 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "Beta Feedback",
-    "description": "Bug chip: troubleshooting recordings, betas you can join, your enrollments and reports, and update-now buttons when a fix is ready.",
+    "displayName": "Feedback",
+    "description": "Bug chip: your feedback issues, report an issue, arm the screen replay, and hand issues to Rix, your coding agent, or the author.",
     "category": "Developer Tools",
     "aliases": [
-      "beta-feedback",
-      "bugs"
+      "feedback",
+      "bugs",
+      "issues"
     ],
     "allowMultiple": false,
     "defaultSection": "right"

@@ -1,4 +1,4 @@
--- Runs the Lua chunks keylog.py sends to `hyprctl eval` against a mock `hl`.
+-- Runs the Lua chunks of_keys.py sends to `hyprctl eval` against a mock `hl`.
 -- usage: lua tests/keylog_lua_test.lua <arm.lua> <arm-all.lua> <disarm.lua>
 -- The arm chunks write to the raw path baked into them; tests/run.sh checks it.
 local handlers, subs = {}, {}
@@ -24,11 +24,11 @@ key(202, 1)                                      -- F24: shown
 handlers["keybinds.submap"]("resize")
 dofile(arm)                                      -- live listener: only the pause flag changes
 assert(#subs == 2, "re-arming a live listener must not register it again")
-_G.bfrec.paused = true
+_G.ofrec.paused = true
 key(113, 1)                                      -- paused: nothing written
-_G.bfrec.paused = false
+_G.ofrec.paused = false
 dofile(disarm)
-assert(_G.bfrec == nil and not subs[1].active and not subs[2].active, "disarm must remove both listeners")
+assert(_G.ofrec == nil and not subs[1].active and not subs[2].active, "disarm must remove both listeners")
 dofile(armall)
 key(38, 1)                                       -- all keys: a is written
 dofile(disarm)

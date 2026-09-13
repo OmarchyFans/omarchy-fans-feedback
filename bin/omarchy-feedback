@@ -13,6 +13,12 @@
 #   omarchy-feedback set <id> status|notes|title|description|kind <value>
 #   omarchy-feedback delete <id>
 #
+# Hand-offs:
+#   omarchy-feedback handoff rix <id>        Rix (Agent Launcher's chief of staff) triages it as a worker job
+#   omarchy-feedback handoff agent <id>      your default coding agent opens in the project folder
+#   omarchy-feedback handoff author <id>     a prefilled issue on the project's GitHub (you review and submit)
+#   omarchy-feedback handoff request <target> <id> | confirm <n> | decline <n> | targets [id] | pending
+#
 # Recorder (always on while you are logged in, pauses while the screen is locked):
 #   omarchy-feedback arm [seconds] | disarm  screen replay buffer (RAM only, auto-off after 30 min)
 #   omarchy-feedback pause | resume          stop / restart the event log
@@ -32,6 +38,7 @@ source "$OF_LIB/common.sh"
 source "$OF_LIB/daemon.sh"
 source "$OF_LIB/capture.sh"
 source "$OF_LIB/issues.sh"
+source "$OF_LIB/handoff.sh"
 # shellcheck source=/dev/null
 [[ -n ${OF_UI_STUBS:-} ]] && source "$OF_UI_STUBS"
 
@@ -58,6 +65,7 @@ case "$cmd" in
   show)   cmd_show "$@" ;;
   set)    cmd_set "$@" ;;
   delete) cmd_delete "$@" ;;
+  handoff) cmd_handoff "$@" ;;
   arm)    cmd_arm "$@" ;;
   disarm) cmd_disarm ;;
   daemon) cmd_daemon "$@" ;;

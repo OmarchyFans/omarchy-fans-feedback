@@ -2,124 +2,146 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
-import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// Beta Feedback: a bug chip in the bar and a panel with the troubleshooting
-// recording, the plugins you are beta-testing, the betas you can join, the
-// reports you filed and where they stand, and one-click "Update now" /
-// "Back to stable" / "It works" actions when a fix lands.
+// Feedback: a bug chip in the bar and the issue list.
 //
-// Everything comes from `omarchy-beta-feedback info` (JSON); every action is a
-// fixed argv passed to the CLI (nothing parsed from disk reaches a shell as
-// code). An hourly timer runs `poll`, which is what fires the "fix ready to
-// test" notification — so no systemd unit is needed.
+//   left click    open the issue list
+//   middle click  report an issue right now (screenshot first, then the form)
 //
-// While a troubleshooting recording runs, lib/keylog.py keeps overlay.json in
-// XDG_RUNTIME_DIR current. This widget reads it to turn the chip red and, on
-// the recorded monitor only, to draw the last key combinations at the bottom
-// of the screen so they end up in the video.
+// The chip keeps the recorder daemon alive (`omarchy-feedback daemon ensure`
+// on load and every 30 s, detached so plugin reloads do not kill it) and reads
+// its status.json for the armed-replay dot and the paused state.
+//
+// Everything shown comes from the CLI as JSON (list, handoff targets, handoff
+// pending); every action is a fixed argv through Util.execArgv, so nothing read
+// from disk reaches a shell as code. Hand-offs started here run directly: the
+// click is the confirmation. Requests made in the web viewer show up under
+// "Waiting for you" and run only after Confirm.
 Panel {
   id: root
-  moduleName: "fans.omarchy.beta-feedback"
-  ipcTarget: "fans.omarchy.beta-feedback"
+  moduleName: "fans.omarchy.feedback"
+  ipcTarget: "fans.omarchy.feedback"
   manageIpc: false
 
-  readonly property string cli: Qt.resolvedUrl("bin/omarchy-beta-feedback").toString().replace(/^file:\/\//, "")
+  readonly property string cli: Qt.resolvedUrl("bin/omarchy-feedback").toString().replace(/^file:\/\//, "")
+  readonly property string runtimeDir: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-feedback"
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  property var info: null
+  property var issues: []
+  property var targets: null
+  property var pending: []
+  property string filter: "open"
   property bool loading: false
   property string error: ""
-  readonly property int updates: info && info.updates ? info.updates.length : 0
-
-  // ---- troubleshooting recording state (from overlay.json)
-  readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-beta-feedback"
-  property var overlay: null
+  property var daemon: null
   property double now: Date.now()
-  readonly property bool recording: overlay !== null && overlay.recording === true && now - overlay.heartbeat < 5000
-  readonly property var recentKeys: recording && overlay.items
-    ? overlay.items.filter(function(i) { return root.now - i.at < 2500 }).slice(-5) : []
-  readonly property var hostScreen: button.QsWindow.window ? button.QsWindow.window.screen : null
-  readonly property bool overlayHere: recording && overlay.showKeys === true
-    && (!overlay.monitor || (hostScreen !== null && hostScreen.name === overlay.monitor))
-  property bool showKeysOnScreen: true
-  property bool includeAllKeys: false
+  property int deleteId: 0
+
+  readonly property bool recorderUp: daemon !== null && daemon.running === true && now - daemon.heartbeat < 20000
+  readonly property bool armed: recorderUp && daemon.replay && daemon.replay.armed === true
+  readonly property bool logPaused: recorderUp && daemon.paused === true
+  readonly property int newCount: issues.filter(function(i) { return i.status === "new" }).length
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
   onOpenedChanged: if (opened) load()
-  onRecordingChanged: if (opened) load()
-  Component.onCompleted: pollProc.running = true
+  Component.onCompleted: ensureDaemon()
 
+  // ---- recorder -------------------------------------------------------------
+  function ensureDaemon() { Util.execArgv([root.cli, "daemon", "ensure"]) }
+  Timer { interval: 30000; running: true; repeat: true; onTriggered: root.ensureDaemon() }
+  Timer { interval: 1000; running: root.opened || root.armed; repeat: true; onTriggered: root.now = Date.now() }
+
+  FileView {
+    id: statusFile
+    path: root.runtimeDir + "/status.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { root.daemon = JSON.parse(text()); root.now = Date.now() } catch (e) { root.daemon = null }
+    }
+    onLoadFailed: function(err) { root.daemon = null }
+  }
+  // The daemon replaces status.json atomically (rename), which a file watch can
+  // miss; re-read it every few seconds as well.
+  Timer { interval: 5000; running: true; repeat: true; onTriggered: statusFile.reload() }
+
+  // ---- data -------------------------------------------------------------------
   function load() {
-    if (infoProc.running) return
     loading = true
-    infoProc.command = [root.cli, "info"]
-    infoProc.running = true
+    if (!listProc.running) {
+      listProc.command = [root.cli, "list", "--json", "--status", root.filter]
+      listProc.running = true
+    }
+    if (!targetsProc.running) targetsProc.running = true
+    if (!pendingProc.running) pendingProc.running = true
   }
   Process {
-    id: infoProc
-    stdout: StdioCollector { id: infoOut; waitForEnd: true }
-    stderr: StdioCollector { id: infoErr; waitForEnd: true }
+    id: listProc
+    stdout: StdioCollector { id: listOut; waitForEnd: true }
+    stderr: StdioCollector { id: listErr; waitForEnd: true }
     onExited: function(code) {
       root.loading = false
-      if (code !== 0) { root.error = infoErr.text.trim() || ("info exited " + code); return }
-      try { root.info = JSON.parse(infoOut.text); root.error = "" } catch (e) { root.error = "bad JSON from info" }
+      if (code !== 0) { root.error = listErr.text.trim() || ("list exited " + code); return }
+      try { root.issues = JSON.parse(listOut.text); root.error = "" } catch (e) { root.error = "bad JSON from list" }
     }
   }
   Process {
-    id: pollProc
-    command: [root.cli, "poll"]
-    onExited: function() { if (root.opened) root.load() }
+    id: targetsProc
+    command: [root.cli, "handoff", "targets", "--json"]
+    stdout: StdioCollector { id: targetsOut; waitForEnd: true }
+    onExited: function(code) { try { root.targets = JSON.parse(targetsOut.text) } catch (e) { root.targets = null } }
   }
-  Timer { interval: 60 * 60 * 1000; running: true; repeat: true; onTriggered: pollProc.running = true }
+  Process {
+    id: pendingProc
+    command: [root.cli, "handoff", "pending", "--json"]
+    stdout: StdioCollector { id: pendingOut; waitForEnd: true }
+    onExited: function(code) { try { root.pending = JSON.parse(pendingOut.text) } catch (e) { root.pending = [] } }
+  }
+  Timer { interval: 10000; running: root.opened; repeat: true; onTriggered: root.load() }
+  Timer { id: reloadSoon; interval: 1200; onTriggered: root.load() }
 
-  // Fixed-argv actions. Channel switches run detached: the resulting checkout
-  // makes the shell reload plugins, which would kill an attached Process.
-  function act(argv) { Util.execArgv(argv); reload.restart() }
-  Timer { id: reload; interval: 1500; onTriggered: root.load() }
-
-  FileView {
-    id: overlayFile
-    path: root.runtimeDir + "/overlay.json"
-    printErrors: false
-    onLoaded: { try { root.overlay = JSON.parse(text()) } catch (e) { root.overlay = null } }
-    onLoadFailed: function(error) { root.overlay = null }
+  function act(argv) { Util.execArgv(argv); reloadSoon.restart() }
+  function capture(source) {
+    if (root.opened) root.close()
+    Util.execArgv([root.cli, "capture", "--source", source])
   }
-  // 10 Hz while recording (the key display), once a second otherwise, so a
-  // recording started from the CLI still turns the chip red.
-  Timer {
-    interval: root.recording ? 100 : 1000
-    running: true
-    repeat: true
-    onTriggered: { root.now = Date.now(); overlayFile.reload() }
+  function available(target) {
+    return root.targets && root.targets[target] && root.targets[target].available === true
   }
-
-  function elapsed() {
-    if (!recording) return ""
-    var s = Math.max(0, Math.floor((now - overlay.startedAt) / 1000))
-    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0")
+  function reason(target) {
+    return root.targets && root.targets[target] ? (root.targets[target].reason || "") : "checking…"
   }
-  // The panel closes first so it is not in the first frames of the video.
-  function startRecording() {
-    var argv = [root.cli, "record", "start"]
-    if (root.includeAllKeys) argv.push("--all-keys")
-    if (!root.showKeysOnScreen) argv.push("--no-overlay")
-    startLater.argv = argv
-    root.close()
-    startLater.restart()
+  function ago(ms) {
+    var s = Math.max(0, Math.floor((root.now - ms) / 1000))
+    if (s < 60) return s + "s ago"
+    if (s < 3600) return Math.floor(s / 60) + "m ago"
+    if (s < 86400) return Math.floor(s / 3600) + "h ago"
+    return Math.floor(s / 86400) + "d ago"
   }
-  Timer { id: startLater; interval: 400; property var argv: []; onTriggered: Util.execArgv(argv) }
-  function stopRecording(report) {
-    root.close()
-    Util.execArgv(report ? [root.cli, "record", "stop"] : [root.cli, "record", "stop", "--no-report"])
+  function statusColor(st) {
+    if (st === "new") return Color.accent
+    if (st === "fixed" || st === "closed") return root.dim
+    return root.foreground
+  }
+  function subjectText(i) {
+    var kind = i.subject_type === "plugin" ? "Plugin" : (i.subject_type === "app" ? "App" : (i.subject_type === "omarchy" ? "Omarchy" : "Not sure"))
+    var name = i.subject_name || i.subject_id || ""
+    return kind + (name ? ": " + name : "") + (i.subject_version ? " " + i.subject_version : "")
+  }
+  function armedFor() {
+    if (!root.armed) return ""
+    var s = Math.max(0, Math.floor((root.now - root.daemon.replay.armedAt) / 1000))
+    return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2)
   }
 
+  // ---- chip -------------------------------------------------------------------
   BarIconButton {
     id: button
     anchors.fill: parent
@@ -127,29 +149,28 @@ Panel {
     text: "󰃤"
     slotSize: Style.bar.statusSlot
     fontSize: Style.font.caption
-    tooltipText: root.recording ? ("Troubleshooting recording " + root.elapsed() + ": click to stop")
-               : root.updates > 0 ? (root.updates + " beta update(s) ready") : "Beta feedback"
-    onPressed: root.toggle()
+    tooltipText: !root.recorderUp ? "Feedback · recorder starting…"
+      : (root.armed ? "Feedback · screen replay armed" : (root.logPaused ? "Feedback · event log paused" : "Feedback"))
+      + " — middle-click to report"
+    onPressed: function(mouseButton) {
+      if (mouseButton === Qt.MiddleButton) root.capture("chip")
+      else root.toggle()
+    }
   }
   Rectangle {
-    visible: root.updates > 0 && !root.recording
+    visible: root.armed
+    width: Style.space(6); height: width; radius: width / 2
+    color: Color.urgent
+    anchors { right: parent.right; top: parent.top; margins: Style.space(3) }
+  }
+  Rectangle {
+    visible: !root.armed && root.newCount > 0
     width: Style.space(6); height: width; radius: width / 2
     color: Color.accent
     anchors { right: parent.right; top: parent.top; margins: Style.space(3) }
   }
-  Rectangle {
-    visible: root.recording
-    width: Style.space(7); height: width; radius: width / 2
-    color: Color.urgent
-    anchors { right: parent.right; top: parent.top; margins: Style.space(3) }
-    SequentialAnimation on opacity {
-      running: root.recording
-      loops: Animation.Infinite
-      NumberAnimation { to: 0.35; duration: 700 }
-      NumberAnimation { to: 1; duration: 700 }
-    }
-  }
 
+  // ---- panel ------------------------------------------------------------------
   KeyboardPanel {
     id: panel
     anchorItem: button
@@ -157,8 +178,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(560))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(700))
+    contentWidth: panel.fittedContentWidth(Style.space(620))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(760))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -183,208 +204,63 @@ Panel {
 
           PanelHero {
             width: parent.width
-            title: "Beta feedback"
-            meta: root.loading ? "Reading…" : (root.error ? root.error
-                  : (!root.info || root.info.plugins.length === 0 ? "You are not beta-testing any plugin yet. Join one below, or record a bug in the desktop itself."
-                  : root.info.enrolled + " enrolled · " + root.updates + " update(s) ready"))
+            title: "Feedback"
+            meta: !root.recorderUp ? "Recorder not running (it starts with the bar; check ~/.local/state and $XDG_RUNTIME_DIR/omarchy-feedback/daemon.log)"
+              : (root.logPaused ? "Event log paused"
+                 : ("Recording window focus and shortcuts, never typed text" + (root.daemon.locked ? " · paused while locked" : "")))
+                + (root.armed ? " · screen replay armed on " + root.daemon.replay.monitor + " for " + root.armedFor() : "")
           }
 
-          // ---- troubleshooting recording
-          PanelSectionHeader { width: parent.width; text: "Troubleshooting recording" }
-          Text {
-            width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
-            color: root.recording ? Color.urgent : root.dim
-            font.family: root.fontFamily; font.pixelSize: Style.font.caption
-            text: root.recording
-              ? ("Recording " + root.elapsed()
-                 + (root.overlay.paused ? " · key log paused while the screen is locked" : "")
-                 + (root.overlay.allKeys ? " · every key is logged" : " · letters and digits hidden"))
-              : "Records the focused screen together with your key presses and window, workspace and keyboard-layout events, so a shortcut that does nothing can be seen exactly. It stays on this machine until you choose to send it, pauses while the screen is locked, and stops by itself after 20 minutes."
-          }
-          Toggle {
-            visible: !root.recording
+          Flow {
             width: parent.width
-            label: "Show keys on screen"
-            description: "Draws each key combination at the bottom of the recorded screen, so the video shows it."
-            checked: root.showKeysOnScreen
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.showKeysOnScreen = !root.showKeysOnScreen
-          }
-          Toggle {
-            visible: !root.recording
-            width: parent.width
-            label: "Include letters and digits"
-            description: "Off: typed text is logged as •, while shortcuts with Ctrl, Alt or Super stay readable. Turn it on only when the bug is about typing, and do not type passwords while recording."
-            checked: root.includeAllKeys
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.includeAllKeys = !root.includeAllKeys
-          }
-          Row {
             spacing: Style.space(6)
             Button {
-              visible: !root.recording
-              text: "Record focused screen"; iconText: "󰑊"; foreground: Color.urgent; fontFamily: root.fontFamily
-              onClicked: root.startRecording()
+              text: "Report an issue"; iconText: "󰃤"; foreground: Color.accent; fontFamily: root.fontFamily
+              tooltipText: "Screenshot, markup and the last 10 minutes of events (SUPER + ALT + B)"
+              onClicked: root.capture("panel")
             }
             Button {
-              visible: root.recording
-              text: "Stop and report"; iconText: "󰓛"; foreground: Color.urgent; fontFamily: root.fontFamily
-              onClicked: root.stopRecording(true)
+              text: root.armed ? "Stop replay" : "Arm screen replay"; iconText: root.armed ? "󰙧" : "󰑊"
+              foreground: root.armed ? Color.urgent : root.foreground; fontFamily: root.fontFamily
+              tooltipText: root.armed ? "Stop keeping the last 2 minutes of the screen in memory"
+                : "Keep the last 2 minutes of this monitor in memory so a report can show what led up to it (off after 30 min)"
+              onClicked: root.act(root.armed ? [root.cli, "disarm"] : [root.cli, "arm"])
             }
             Button {
-              visible: root.recording
-              text: "Stop and save only"; foreground: root.dim; fontFamily: root.fontFamily
-              onClicked: root.stopRecording(false)
+              text: root.logPaused ? "Resume event log" : "Pause event log"; iconText: root.logPaused ? "󰐊" : "󰏤"
+              foreground: root.dim; fontFamily: root.fontFamily
+              onClicked: root.act(root.logPaused ? [root.cli, "resume"] : [root.cli, "pause"])
+            }
+            Button {
+              text: "Viewer"; iconText: "󰖟"; foreground: root.foreground; fontFamily: root.fontFamily
+              tooltipText: "Replays, markup and PDF / Markdown export in the local web viewer"
+              onClicked: { root.close(); Util.execArgv([root.cli, "open"]) }
             }
           }
 
-          // ---- plugins you are (or were) testing
-          Repeater {
-            model: root.info ? root.info.plugins : []
-            delegate: Column {
-              required property var modelData
-              width: column.width
-              spacing: Style.space(4)
-
-              PanelSectionHeader { width: parent.width; text: modelData.plugin }
-              Text {
-                width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
-                color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-                text: (modelData.status === "enrolled"
-                        ? "Enrolled · day " + modelData.daysUsed + " of " + modelData.betaDays
-                        : modelData.status)
-                      + " · " + modelData.channel + " channel (" + modelData.branch + " @ " + modelData.sha + ")"
-                      + (modelData.updateAvailable ? "\nA fix is ready on the beta channel (" + modelData.updateSha + ")." : "")
-              }
-              Row {
+          // Requests made in the web viewer wait here (and in a notification).
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
+            visible: root.pending.length > 0
+            PanelSeparator { width: parent.width }
+            PanelSectionHeader { width: parent.width; text: "Waiting for you" }
+            Repeater {
+              model: root.pending
+              delegate: Row {
+                required property var modelData
                 spacing: Style.space(6)
-                Button {
-                  visible: modelData.updateAvailable
-                  text: "Update now"; iconText: "󰚰"; foreground: Color.accent; fontFamily: root.fontFamily
-                  onClicked: root.act([root.cli, "update", modelData.plugin, "--channel", "beta"])
+                Text {
+                  width: column.width - confirmBtn.width - declineBtn.width - Style.space(12)
+                  anchors.verticalCenter: parent.verticalCenter
+                  elide: Text.ElideRight; textFormat: Text.PlainText
+                  color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                  text: "Send #" + modelData.issue_id + " to " + (modelData.target === "rix" ? "Rix" : (modelData.target === "agent" ? "your coding agent" : "the author")) + ": " + modelData.title
                 }
-                Button {
-                  visible: modelData.channel === "beta"
-                  text: "Back to stable"; iconText: "󰜉"; foreground: root.foreground; fontFamily: root.fontFamily
-                  onClicked: root.act([root.cli, "update", modelData.plugin, "--channel", "stable"])
-                }
-                Button {
-                  visible: modelData.status === "enrolled"
-                  text: "Leave beta"; foreground: root.dim; fontFamily: root.fontFamily
-                  onClicked: root.act([root.cli, "unenroll", modelData.plugin])
-                }
-                Button {
-                  visible: modelData.status !== "enrolled" && modelData.hasRepo
-                  text: "Re-enroll"; foreground: root.dim; fontFamily: root.fontFamily
-                  onClicked: root.act([root.cli, "enroll", modelData.plugin])
-                }
-              }
-              Repeater {
-                model: modelData.reports
-                delegate: Row {
-                  required property var modelData
-                  spacing: Style.space(6)
-                  width: column.width
-                  Text {
-                    width: parent.width - actions.width - Style.space(6)
-                    wrapMode: Text.WordWrap; textFormat: Text.PlainText; elide: Text.ElideRight; maximumLineCount: 2
-                    color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-                    text: (modelData.issue ? "#" + modelData.issue + " " : "") + modelData.title
-                          + "  ·  " + modelData.status + (modelData.confirmed ? " · you said: " + modelData.confirmed : "")
-                  }
-                  Row {
-                    id: actions
-                    spacing: Style.space(4)
-                    Button {
-                      visible: !!modelData.url
-                      iconText: "󰖟"; text: ""; tooltipText: "Open the issue"; foreground: root.dim; fontFamily: root.fontFamily
-                      onClicked: Util.execArgv(["xdg-open", modelData.url])
-                    }
-                    Button {
-                      visible: modelData.status === "fixed-in-beta" && modelData.issue && !modelData.confirmed
-                      text: "It works"; iconText: "󰄬"; foreground: Color.accent; fontFamily: root.fontFamily
-                      onClicked: root.act([root.cli, "confirm", modelData.plugin, String(modelData.issue), "--works"])
-                    }
-                    Button {
-                      visible: modelData.status === "fixed-in-beta" && modelData.issue && !modelData.confirmed
-                      text: "Still broken"; iconText: "󰅖"; foreground: Color.urgent; fontFamily: root.fontFamily
-                      onClicked: root.act([root.cli, "confirm", modelData.plugin, String(modelData.issue), "--broken"])
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // ---- betas you can join (or, as the author, set up)
-          PanelSectionHeader {
-            visible: root.info !== null && (root.info.available || []).length > 0
-            width: parent.width
-            text: "Beta programs"
-          }
-          Repeater {
-            model: root.info && root.info.available ? root.info.available : []
-            delegate: Row {
-              required property var modelData
-              width: column.width
-              spacing: Style.space(6)
-              Text {
-                width: parent.width - joinActions.width - Style.space(6)
-                wrapMode: Text.WordWrap; textFormat: Text.PlainText
-                color: modelData.beta ? root.foreground : root.dim
-                font.family: root.fontFamily; font.pixelSize: Style.font.caption
-                text: modelData.name + " · "
-                      + (modelData.beta ? "beta open; reports go to github.com/" + modelData.repo
-                         : modelData.source !== "" ? "no beta yet; its source is on this machine, so you can set one up"
-                         : "no beta program (its author has not set one up)")
-              }
-              Row {
-                id: joinActions
-                spacing: Style.space(4)
-                Button {
-                  visible: modelData.beta
-                  text: modelData.status === "unknown" ? "Join beta" : "Re-join"
-                  iconText: "󰃤"; foreground: Color.accent; fontFamily: root.fontFamily
-                  onClicked: root.act([root.cli, "enroll", modelData.plugin])
-                }
-                Button {
-                  visible: !modelData.beta && modelData.source !== ""
-                  text: "Set up beta…"; foreground: root.dim; fontFamily: root.fontFamily
-                  tooltipText: "Opens a terminal running `author init` on " + modelData.source
-                  onClicked: {
-                    root.close()
-                    Util.execArgv(["omarchy-launch-tui", "--app-id=TUI.float", root.cli, "author", "init", modelData.source])
-                  }
-                }
-              }
-            }
-          }
-
-          // ---- reports about the desktop itself
-          PanelSectionHeader {
-            visible: root.info !== null && (root.info.desktopReports || []).length > 0
-            width: parent.width
-            text: "Desktop reports"
-          }
-          Repeater {
-            model: root.info && root.info.desktopReports ? root.info.desktopReports.slice(0, 5) : []
-            delegate: Row {
-              required property var modelData
-              width: column.width
-              spacing: Style.space(6)
-              Text {
-                width: parent.width - openIssue.width - Style.space(6)
-                wrapMode: Text.WordWrap; textFormat: Text.PlainText; elide: Text.ElideRight; maximumLineCount: 2
-                color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-                text: (modelData.issue ? "#" + modelData.issue + " " : "") + modelData.title + "  ·  " + modelData.status
-              }
-              Button {
-                id: openIssue
-                visible: !!modelData.url
-                iconText: "󰖟"; text: ""; tooltipText: "Open the issue"; foreground: root.dim; fontFamily: root.fontFamily
-                onClicked: Util.execArgv(["xdg-open", modelData.url])
+                Button { id: confirmBtn; text: "Confirm"; foreground: Color.accent; fontFamily: root.fontFamily
+                         onClicked: root.act([root.cli, "handoff", "confirm", String(modelData.id)]) }
+                Button { id: declineBtn; text: "Decline"; foreground: root.dim; fontFamily: root.fontFamily
+                         onClicked: root.act([root.cli, "handoff", "decline", String(modelData.id)]) }
               }
             }
           }
@@ -392,75 +268,128 @@ Panel {
           PanelSeparator { width: parent.width }
           Row {
             spacing: Style.space(6)
-            Button { text: "Check for fixes now"; iconText: "󰑐"; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: pollProc.running = true }
-            Button { text: "Author inbox"; iconText: "󰇮"; foreground: root.foreground; fontFamily: root.fontFamily
-                     onClicked: Util.execArgv(["omarchy-launch-tui", "--app-id=TUI.float", root.cli, "author", "inbox"]) }
-            Button { text: "Reload"; foreground: root.dim; fontFamily: root.fontFamily; onClicked: root.load() }
+            PanelSectionHeader { anchors.verticalCenter: parent.verticalCenter; text: root.filter === "open" ? "Open issues" : "All issues" }
+            Button {
+              text: root.filter === "open" ? "Show all" : "Open only"; foreground: root.dim; fontFamily: root.fontFamily
+              onClicked: { root.filter = root.filter === "open" ? "all" : "open"; root.load() }
+            }
           }
           Text {
             width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
-            color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-            text: root.info ? "Reporter id " + root.info.reporter + " · v" + root.info.version : ""
+            visible: root.error !== "" || (!root.loading && root.issues.length === 0)
+            color: root.error !== "" ? Color.urgent : root.dim
+            font.family: root.fontFamily; font.pixelSize: Style.font.caption
+            text: root.error !== "" ? root.error : "Nothing here. Press SUPER + ALT + B (or middle-click the bug) when something goes wrong or you have an idea."
+          }
+
+          Repeater {
+            model: root.issues
+            delegate: Column {
+              id: row
+              required property var modelData
+              width: column.width
+              spacing: Style.space(3)
+
+              Row {
+                width: parent.width
+                spacing: Style.space(6)
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: pill.implicitWidth + Style.space(10); height: pill.implicitHeight + Style.space(2)
+                  radius: height / 2
+                  color: "transparent"
+                  border.width: 1; border.color: root.statusColor(row.modelData.status)
+                  Text {
+                    id: pill; anchors.centerIn: parent; textFormat: Text.PlainText
+                    color: root.statusColor(row.modelData.status); font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                    text: row.modelData.status
+                  }
+                }
+                Text {
+                  width: parent.width - x - ageText.width - Style.space(6)
+                  anchors.verticalCenter: parent.verticalCenter
+                  elide: Text.ElideRight; textFormat: Text.PlainText
+                  color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body
+                  text: "#" + row.modelData.id + "  " + (row.modelData.kind === "feature" ? "✦ " : "") + row.modelData.title
+                }
+                Text {
+                  id: ageText
+                  anchors.verticalCenter: parent.verticalCenter
+                  textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                  text: root.ago(row.modelData.created_at)
+                }
+              }
+              Text {
+                width: parent.width; elide: Text.ElideRight; textFormat: Text.PlainText
+                color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                text: root.subjectText(row.modelData)
+                  + (row.modelData.attachment_kinds.indexOf("replay") >= 0 ? " · replay" : "")
+                  + " · " + row.modelData.event_count + " events"
+                  + (row.modelData.pending_handoffs > 0 ? " · waiting for you" : "")
+              }
+              Flow {
+                width: parent.width
+                spacing: Style.space(4)
+                Button {
+                  text: "Open"; iconText: "󰖟"; foreground: root.foreground; fontFamily: root.fontFamily
+                  tooltipText: "Replay, timeline, markup and export in the viewer"
+                  onClicked: { root.close(); Util.execArgv([root.cli, "open", String(row.modelData.id)]) }
+                }
+                Button {
+                  text: "Rix"; iconText: "󱚝"; fontFamily: root.fontFamily
+                  foreground: root.available("rix") ? root.foreground : root.dim
+                  tooltipText: root.available("rix") ? "Rix triages it as a worker job in Agent Launcher" : root.reason("rix")
+                  onClicked: if (root.available("rix")) root.act([root.cli, "handoff", "rix", String(row.modelData.id)])
+                }
+                Button {
+                  text: root.targets && root.targets.agent && root.targets.agent.name ? root.targets.agent.name : "Coding agent"
+                  iconText: "󰘦"; fontFamily: root.fontFamily
+                  foreground: root.available("agent") ? root.foreground : root.dim
+                  tooltipText: root.available("agent") ? "Open your coding agent in the project folder with this issue" : root.reason("agent")
+                  onClicked: if (root.available("agent")) { root.close(); root.act([root.cli, "handoff", "agent", String(row.modelData.id)]) }
+                }
+                Button {
+                  text: "Author"; iconText: "󰊤"; fontFamily: root.fontFamily
+                  foreground: row.modelData.repo_url ? root.foreground : root.dim
+                  tooltipText: row.modelData.repo_url ? "Open a prefilled issue at " + row.modelData.repo_url + " (you review and submit)" : "No project link for this subject"
+                  onClicked: if (row.modelData.repo_url) { root.close(); root.act([root.cli, "handoff", "author", String(row.modelData.id)]) }
+                }
+                Button {
+                  visible: row.modelData.status !== "fixed" && row.modelData.status !== "closed"
+                  text: "Fixed"; iconText: "󰄬"; foreground: root.dim; fontFamily: root.fontFamily
+                  onClicked: root.act([root.cli, "set", String(row.modelData.id), "status", "fixed"])
+                }
+                Button {
+                  visible: row.modelData.status !== "closed"
+                  text: "Close"; foreground: root.dim; fontFamily: root.fontFamily
+                  onClicked: root.act([root.cli, "set", String(row.modelData.id), "status", "closed"])
+                }
+                Button {
+                  visible: row.modelData.status === "fixed" || row.modelData.status === "closed"
+                  text: "Reopen"; foreground: root.dim; fontFamily: root.fontFamily
+                  onClicked: root.act([root.cli, "set", String(row.modelData.id), "status", "triaged"])
+                }
+                Button {
+                  text: ""; iconText: "󰆴"; tooltipText: "Delete this issue and its files"; foreground: root.dim; fontFamily: root.fontFamily
+                  onClicked: { root.deleteId = row.modelData.id; deleteDialog.opened = true }
+                }
+              }
+              PanelSeparator { width: parent.width; strength: 0.06 }
+            }
           }
         }
       }
     }
 
-    // The SDK exercised on ourselves: it stays invisible unless this clone has
-    // a GitHub origin, so it costs nothing but proves the file loads.
-    BetaFeedback { pluginId: root.moduleName; opened: panel.open }
-  }
-
-  // ---- on-screen keys: one click-through strip on the recorded monitor, drawn
-  // by the widget instance whose bar lives there. Visual only: no keyboard
-  // focus, empty input region.
-  PanelWindow {
-    id: keyOverlay
-    visible: root.overlayHere
-    screen: root.hostScreen
-    anchors { left: true; right: true; bottom: true }
-    implicitHeight: Style.space(160)
-    color: "transparent"
-    WlrLayershell.namespace: "fans-omarchy-beta-feedback-keys"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    exclusionMode: ExclusionMode.Ignore
-    mask: Region {}
-
-    Row {
-      anchors.horizontalCenter: parent.horizontalCenter
-      anchors.bottom: parent.bottom
-      anchors.bottomMargin: Style.space(48)
-      spacing: Style.space(8)
-      Repeater {
-        model: root.recentKeys
-        delegate: Rectangle {
-          required property var modelData
-          required property int index
-          radius: Style.cornerRadius
-          color: Util.alpha(Color.background, 0.92)
-          border.color: index === root.recentKeys.length - 1 ? Color.accent : Util.alpha(Color.foreground, 0.35)
-          border.width: Math.max(1, Style.space(2))
-          width: keyLabel.implicitWidth + Style.space(28)
-          height: keyLabel.implicitHeight + Style.space(14)
-          Text {
-            id: keyLabel
-            anchors.centerIn: parent
-            text: modelData.text
-            color: Color.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            font.bold: true
-          }
-        }
-      }
-    }
-    Text {
-      anchors { left: parent.left; bottom: parent.bottom; leftMargin: Style.space(16); bottomMargin: Style.space(16) }
-      text: "󰑊 keys" + (root.overlay && root.overlay.paused ? " paused" : "")
-      color: Color.urgent
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
+    ConfirmDialog {
+      id: deleteDialog
+      anchors.fill: parent
+      z: 10
+      message: "Delete issue #" + root.deleteId + " with its screenshots, replay and event log?"
+      cancelText: "Keep"
+      confirmText: "Delete"
+      onConfirmed: { opened = false; root.act([root.cli, "delete", String(root.deleteId)]) }
+      onCanceled: opened = false
     }
   }
 }

@@ -1,0 +1,2 @@
+#!/bin/bash
+printf 'omarchy-webapp-install %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"

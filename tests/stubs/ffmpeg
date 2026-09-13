@@ -1,0 +1,7 @@
+#!/bin/bash
+# ffmpeg stub: logs the call and copies -i to the last argument.
+printf 'ffmpeg %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"
+in=""; args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do [[ ${args[i]} == -i ]] && in=${args[i+1]}; done
+[[ -n $in ]] && cp -f "$in" "${!#}"
+exit 0

@@ -1,0 +1,10 @@
+#!/bin/bash
+# pacman stub for attribution: omarchy and one app package owning /usr/bin/bash.
+case "$*" in
+  "-Q omarchy") echo "omarchy 4.0.2-1" ;;
+  "-Q quickshell") echo "quickshell 0.3.1-1" ;;
+  "-Qi omarchy") printf 'Name            : omarchy\nVersion         : 4.0.2-1\nURL             : https://github.com/basecamp/omarchy\nPackager        : Omarchy <omarchy@example>\n' ;;
+  "-Qoq /usr/bin/bash") echo "bash" ;;
+  "-Qi bash") printf 'Name            : bash\nVersion         : 5.3.9-1\nURL             : https://www.gnu.org/software/bash/bash.html\nPackager        : Arch Packager <arch@example>\n' ;;
+  *) exit 1 ;;
+esac

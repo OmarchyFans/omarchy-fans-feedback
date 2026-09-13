@@ -2,9 +2,21 @@
 #
 # omarchy-feedback — record feedback about anything on the Omarchy desktop.
 #
+# Report (SUPER + ALT + B, or middle-click the bug chip):
+#   omarchy-feedback capture [--source key|chip|panel] [--minutes N] [--no-annotate]
+#   omarchy-feedback capture --no-form --title T [--kind bug|feature]
+#                    [--subject auto|omarchy|app|plugin:<id>] [--description D]   (scripts and agents)
+#
+# Issues:
+#   omarchy-feedback list [--status open|all|<status>] [--json]
+#   omarchy-feedback show <id> [--json]      Markdown summary, or the full record as JSON
+#   omarchy-feedback set <id> status|notes|title|description|kind <value>
+#   omarchy-feedback delete <id>
+#
 # Recorder (always on while you are logged in, pauses while the screen is locked):
-#   omarchy-feedback daemon ensure|status|stop|restart
+#   omarchy-feedback arm [seconds] | disarm  screen replay buffer (RAM only, auto-off after 30 min)
 #   omarchy-feedback pause | resume          stop / restart the event log
+#   omarchy-feedback daemon ensure|status|stop|restart
 #   omarchy-feedback snap <file> [minutes]   copy the last N minutes of events into a file
 #
 # Flags: --dry-run  print side-effecting commands instead of running them
@@ -18,6 +30,8 @@ OF_VERSION=$(jq -r .version "$OF_ROOT/manifest.json" 2>/dev/null || echo dev)
 
 source "$OF_LIB/common.sh"
 source "$OF_LIB/daemon.sh"
+source "$OF_LIB/capture.sh"
+source "$OF_LIB/issues.sh"
 # shellcheck source=/dev/null
 [[ -n ${OF_UI_STUBS:-} ]] && source "$OF_UI_STUBS"
 
@@ -38,6 +52,14 @@ set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 cmd=${1:-help}; shift || true
 case "$cmd" in
+  capture) cmd_capture "$@" ;;
+  capture-form) cmd_capture_form "$@" ;;
+  list)   cmd_list "$@" ;;
+  show)   cmd_show "$@" ;;
+  set)    cmd_set "$@" ;;
+  delete) cmd_delete "$@" ;;
+  arm)    cmd_arm "$@" ;;
+  disarm) cmd_disarm ;;
   daemon) cmd_daemon "$@" ;;
   pause)  cmd_pause ;;
   resume) cmd_resume ;;

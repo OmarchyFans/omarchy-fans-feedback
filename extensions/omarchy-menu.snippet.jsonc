@@ -1,10 +1,5 @@
-  // Beta Feedback (fans.omarchy.beta-feedback)
-  "beta-feedback": {
-    "label": "Beta feedback",
-    "icon": "󰃤",
-    "items": {
-      "beta-feedback.panel":  { "label": "My beta enrollments", "exec": "omarchy-shell shell toggle fans.omarchy.beta-feedback" },
-      "beta-feedback.poll":   { "label": "Check for fixes now", "exec": "omarchy-beta-feedback poll" },
-      "beta-feedback.inbox":  { "label": "Author inbox", "exec": "omarchy-launch-tui --app-id=TUI.float omarchy-beta-feedback author inbox" }
-    }
-  },
+  // Feedback (fans.omarchy.feedback)
+  "feedback": {"icon":"󰃤","label":"Feedback","aliases":["bug","issue","report"],"description":"Report an issue about anything on the desktop; your issue list"},
+  "feedback.report": {"icon":"󰃤","label":"Report an issue","description":"Screenshot, markup and the events that led up to now (SUPER + ALT + B)","action":"$HOME/.config/omarchy/plugins/fans.omarchy.feedback/bin/omarchy-feedback capture --source menu"},
+  "feedback.list": {"icon":"󰄬","label":"Issues","description":"Your feedback issues and hand-offs","action":"omarchy-shell shell toggle fans.omarchy.feedback"},
+  "feedback.viewer": {"icon":"󰖟","label":"Open viewer","description":"Replay, markup and export in the local web viewer","action":"$HOME/.config/omarchy/plugins/fans.omarchy.feedback/bin/omarchy-feedback open"},

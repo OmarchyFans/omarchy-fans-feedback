@@ -7,4 +7,4 @@ ui_filter()  { ui_choose "$@"; }
 ui_input()   { local a; a=$(_of_answer "input: $1"); [[ $a == "<cancel>" ]] && return 1; printf '%s' "$a"; }
 ui_write()   { _of_answer "write: $1"; }
 ui_confirm() { [[ $(_of_answer "confirm: $1") == y ]]; }
-ui_style()   { printf '%s\n' "$*"; }
+ui_style()   { printf '%s\n' "$*" >&2; }

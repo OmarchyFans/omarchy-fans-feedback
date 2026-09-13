@@ -1,0 +1,5 @@
+#!/bin/bash
+# grim stub: writes a tiny fake PNG to the last argument.
+printf 'grim %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"
+out="${!#}"
+printf '\x89PNG\r\n\x1a\nfake-shot' >"$out"

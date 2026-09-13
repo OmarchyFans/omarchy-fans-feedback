@@ -117,6 +117,7 @@ class Daemon:
         self.started = of_events.now_ms()
         self.s2 = None
         self.s2_buf = b""
+        self.focus_addr = ""
         self.raw_fd = -1
         self.raw_buf = b""
         self.last_status = 0.0
@@ -291,16 +292,26 @@ class Daemon:
             return
         self.s2_buf += data
         *lines, self.s2_buf = self.s2_buf.split(b"\n")
-        for raw in lines:
+        for n, raw in enumerate(lines):
             ev = of_events.parse_hypr_line(raw.decode("utf-8", "replace"))
             if not ev:
                 continue
+            if ev["event"] == "activewindow":
+                # activewindowv2>>address follows; the same address again means only the
+                # title changed (a terminal spinner re-sends this every second).
+                addr = next((l[16:].decode("ascii", "replace") for l in lines[n + 1:n + 4]
+                             if l.startswith(b"activewindowv2>>")), "")
+                if addr:
+                    ev["address"] = addr
+                    if addr == self.focus_addr:
+                        ev["retitle"] = True
+                    self.focus_addr = addr
             self.emit(ev)
             if ev["event"] == "configreloaded":
                 self.next_rearm = 0
             if ev["event"] == "focusedmon" and self.replay and ev.get("monitor") != self.replay["monitor"]:
                 self.disarm_replay("auto-disarmed: focus moved to monitor %s" % ev.get("monitor"))
-            if ev["event"] in of_events.CURSOR_AFTER and not self.user_paused:
+            if ev["event"] in of_events.CURSOR_AFTER and not ev.get("retitle") and not self.user_paused:
                 pos = of_events.hypr_json("cursorpos")
                 if isinstance(pos, dict) and "x" in pos:
                     self.emit({"type": "cursor", "x": pos.get("x"), "y": pos.get("y"), "after": ev["event"]})

@@ -24,6 +24,7 @@ import subprocess  # noqa: E402
 
 OMARCHY_REPO = "https://github.com/basecamp/omarchy"
 BUILTIN_LAYER = re.compile(r"^omarchy-")
+SHELL_CLASSES = ("org.quickshell", "quickshell", "omarchy-shell")
 
 
 def plugins_dir():
@@ -177,10 +178,19 @@ def candidates(pending):
                        for e in events[-40:])
     om = omarchy_subject()
     plugins = installed_plugins()
-    if recent_shell or not app:
+    # Plugin panels are Quickshell windows titled with the manifest name
+    # ("Omarchy Help"); such a window is about that plugin, or else the shell.
+    shell_win = (win.get("class") or "").lower() in SHELL_CLASSES
+    title = (win.get("title") or "").strip().lower()
+    owner = next((p for p in plugins if shell_win and title and
+                  (p.get("name") or "").strip().lower() in (title, title.split(" — ")[0])), None)
+    if recent_shell or not app or shell_win:
         out.insert(0, om)
     else:
         out.append(om)
+    if owner:
+        plugins.remove(owner)
+        out.insert(0, owner)
     out.extend(plugins)
     out.append({"type": "unknown", "id": "", "name": "Something else", "version": "", "repo": "", "author": "",
                 "label": "Something else / not sure"})

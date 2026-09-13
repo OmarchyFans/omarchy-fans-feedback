@@ -52,8 +52,32 @@ def fence(text):
 def timeline(issue, limit):
     evs = of_db.get_events(issue["id"])
     base = issue.get("capture_t_ms") or (evs[-1]["t"] if evs else 0)
-    shown = [e for e in evs if e["type"] not in ("daemon",)][-limit:]
-    lines = ["%s  %s" % (rel(e["t"], base), e["label"]) for e in shown]
+    # A run of hidden keystrokes is one line ("typed 18 keys"), not 18.
+    # Repeated title changes keep only the latest, and a screen capture that starts and
+    # stops within two seconds (a screenshot) is one line.
+    rows = []
+    for e in evs:
+        d = e.get("data") or {}
+        last = rows[-1] if rows else None
+        if e["type"] in ("daemon",) or d.get("event") == "windowtitle":
+            continue
+        if e["type"] == "key" and d.get("redacted"):
+            if last and last[2]:
+                last[2] += 1
+                continue
+            rows.append([e["t"], "", 1, "typed"])
+        elif d.get("retitle") and last and last[3] == "retitle":
+            last[0], last[1] = e["t"], e["label"]
+        elif (e["type"] == "screencast" and (d.get("data") or "").startswith("0,") and last
+              and last[3] == "cast-on" and e["t"] - last[0] < 2000):
+            last[1], last[3] = "screenshot (%s)" % d["data"].partition(",")[2], "cast"
+        else:
+            kind = "retitle" if d.get("retitle") else \
+                "cast-on" if e["type"] == "screencast" and (d.get("data") or "").startswith("1,") else ""
+            rows.append([e["t"], e["label"], 0, kind])
+    lines = ["%s  %s" % (rel(t, base), label if not n else
+                         "typed %d key%s (text hidden)" % (n, "" if n == 1 else "s"))
+             for t, label, n, _ in rows[-limit:]]
     return lines, len(evs)
 
 

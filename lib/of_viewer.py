@@ -141,9 +141,9 @@ def print_html(issue_id, file_urls=True, tok=None):
            "body{font:13px/1.45 system-ui,sans-serif;margin:28px;color:#111}h1{font-size:20px;margin:0 0 4px}"
            ".meta{color:#555;margin-bottom:14px}table{border-collapse:collapse;margin:8px 0 16px}"
            "td{border-top:1px solid #ddd;padding:3px 10px 3px 0;vertical-align:top}td:first-child{color:#555;white-space:nowrap}"
-           "h2{font-size:15px;margin:18px 0 6px}.text{white-space:pre-wrap}pre{font:11px/1.35 ui-monospace,monospace;"
+           "h2{font-size:15px;margin:18px 0 6px;break-after:avoid;page-break-after:avoid}.text{white-space:pre-wrap}pre{font:11px/1.35 ui-monospace,monospace;"
            "background:#f4f4f4;padding:8px;white-space:pre-wrap}figure{margin:10px 0;page-break-inside:avoid}"
-           "img{max-width:100%;border:1px solid #ccc}figcaption{color:#555;font-size:11px}",
+           "img{max-width:100%;max-height:220mm;object-fit:contain;border:1px solid #ccc}figcaption{color:#555;font-size:11px}",
            "</style></head><body>",
            "<h1>%s</h1><div class='meta'>%s · #%d</div>" % (e(i["title"]), "Bug" if i["kind"] == "bug" else "Feature request", i["id"]),
            "<table>%s</table>" % "".join("<tr><td>%s</td><td>%s</td></tr>" % (e(k), e(str(v))) for k, v in rows),

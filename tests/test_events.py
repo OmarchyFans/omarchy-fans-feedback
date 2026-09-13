@@ -12,6 +12,7 @@ import unittest  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import of_events  # noqa: E402
 import of_keys  # noqa: E402
+import of_subject  # noqa: E402
 
 MIN = 60000
 
@@ -106,6 +107,71 @@ class HyprTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             of_keys.lua_arm('/tmp/x"; os.execute("boom")')
         self.assertIn("_G.ofrec", of_keys.lua_arm("/run/user/1000/omarchy-feedback/keys.raw"))
+
+
+class TimelineTests(unittest.TestCase):
+    def test_collapses_noise(self):
+        import of_report
+        raw = [
+            {"type": "key", "redacted": True, "combo": "•"},
+            {"type": "key", "redacted": True, "combo": "•"},
+            {"type": "key", "combo": "Enter"},
+            {"type": "window", "event": "activewindow", "class": "kitty", "title": "a", "retitle": True},
+            {"type": "window", "event": "activewindow", "class": "kitty", "title": "b", "retitle": True},
+            {"type": "screencast", "event": "screencast", "data": "1,monitor"},
+            {"type": "screencast", "event": "screencast", "data": "0,monitor"},
+            {"type": "key", "redacted": True, "combo": "•"},
+        ]
+        evs = [{"seq": n, "t": 1000 + n * 100, "type": e["type"], "label": of_events.describe(e), "data": e}
+               for n, e in enumerate(raw)]
+        orig = of_report.of_db.get_events
+        of_report.of_db.get_events = lambda _id: evs
+        try:
+            lines, total = of_report.timeline({"id": 1, "capture_t_ms": 2000}, 50)
+        finally:
+            of_report.of_db.get_events = orig
+        labels = [line.split("  ", 1)[1] for line in lines]
+        self.assertEqual(labels, ["typed 2 keys (text hidden)", "key Enter", "title kitty — b",
+                                  "screenshot (monitor)", "typed 1 key (text hidden)"])
+        self.assertEqual(total, 8)
+
+
+class SubjectTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        plugins = os.path.join(self.tmp.name, "plugins")
+        for pid, name in (("a.help", "Omarchy Help"), ("b.calc", "Calc")):
+            os.makedirs(os.path.join(plugins, pid))
+            with open(os.path.join(plugins, pid, "manifest.json"), "w") as f:
+                json.dump({"id": pid, "name": name, "version": "1.0"}, f)
+        self.pending = os.path.join(self.tmp.name, "pending")
+        os.makedirs(self.pending)
+        self.env = os.environ.get("OF_PLUGINS_DIR")
+        os.environ["OF_PLUGINS_DIR"] = plugins
+
+    def tearDown(self):
+        if self.env is None:
+            os.environ.pop("OF_PLUGINS_DIR", None)
+        else:
+            os.environ["OF_PLUGINS_DIR"] = self.env
+        self.tmp.cleanup()
+
+    def order(self, win):
+        with open(os.path.join(self.pending, "activewindow.json"), "w") as f:
+            json.dump(win, f)
+        return [(c["type"], c["id"]) for c in of_subject.candidates(self.pending)]
+
+    def test_plugin_window_is_the_plugin(self):
+        got = self.order({"class": "org.quickshell", "title": "Omarchy Help"})
+        self.assertEqual(got[0], ("plugin", "a.help"))
+        self.assertEqual(got[1], ("omarchy", "omarchy"))
+        self.assertEqual(got.count(("plugin", "a.help")), 1)
+
+    def test_unnamed_shell_window_is_omarchy(self):
+        self.assertEqual(self.order({"class": "org.quickshell", "title": "Settings"})[0], ("omarchy", "omarchy"))
+
+    def test_app_window_stays_app(self):
+        self.assertEqual(self.order({"class": "firefox", "title": "Calc"})[0], ("app", "firefox"))
 
 
 if __name__ == "__main__":

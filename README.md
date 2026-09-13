@@ -1,39 +1,53 @@
 # Feedback for Omarchy
 
-`fans.omarchy.feedback` records feedback about **anything on your desktop**: an
-Omarchy plugin, an app, a window, or Omarchy itself. No per-plugin setup, no
-server, nothing leaves your machine unless you send it.
+**Catch a bug or an idea the moment it happens, anywhere on your desktop, and turn it
+into a fix.** One keypress captures a screenshot and what led up to it. Feedback files it in a
+local issue list and hands it to Rix, your coding agent or the project's author. Your
+screenshots and logs never leave the machine unless you send them.
 
-Press **SUPER + ALT + B** (or middle-click the 󰃤 bug in the bar) the moment
-something goes wrong or you have an idea:
+## Features
 
-1. A screenshot of the monitor and the focused window is taken **before**
-   anything of Feedback's appears on screen.
-2. The last 10 minutes of the **event log** are attached: window focus, workspace
-   and layer changes, shortcuts and navigation keys, pointer position at focus
-   changes. Typed text is never recorded.
-3. If you **armed the screen replay**, the last 2 minutes of the monitor are saved
-   as a video.
-4. Tensaku opens so you can draw, add arrows and write on the screenshot.
-5. A short form: what it is about (guessed from what was focused), bug or feature,
+- **Report from anywhere.** Press SUPER + ALT + B (or middle-click the 󰃤 bug) over any
+  Omarchy plugin, app, window or Omarchy itself. No per-plugin setup.
+- **Screenshot first.** The monitor and the focused window are captured before
+  anything of Feedback's appears on screen.
+- **Knows what led up to it.** An always-on event log keeps the last 12 minutes of window
+  focus, workspace and layer changes, shortcuts and the pointer position, and pauses while the
+  screen is locked. **Typed text is never recorded.**
+- **Optional screen replay.** Arm it from the bar and the last 2 minutes stay in memory,
+  saved as a video only when you file an issue. It turns itself off after 30 minutes, on lock,
+  or on a monitor change.
+- **Mark it up.** Draw arrows, boxes and notes on the screenshot in Tensaku right away, or
+  later in the viewer.
+- **Knows what it's about.** Feedback guesses whether the report concerns a plugin, an app or
+  Omarchy, and fills in its version, project link and author.
+- **Local issue list.** Click the bug to see new, triaged, sent and fixed issues, with
+  status, notes and delete.
+- **Hand it off in one click:**
+  - **Rix**, the Chief of Staff in [Agent Launcher](https://github.com/OmarchyFans/omarchy-fans-agent-launcher),
+    triages it as a worker job.
+  - **Your coding agent** (Omarchy's default, e.g. Claude Code) opens in the project's
+    folder with an issue brief that treats the report as untrusted input.
+  - **The author** gets a prefilled issue on the project's repository that you review
+    before posting.
+- **Replay viewer.** A local web app plays the video in sync with the event timeline, or
+  steps through the events over the screenshot. It follows your Omarchy theme and installs
+  as a web app.
+- **Export.** Download any issue as a PDF or Markdown summary.
+- **Scriptable.** `omarchy-feedback capture --no-form ...` lets agents and scripts file
+  issues too.
+- **Private by design.** The viewer listens on loopback only, and scripts and agents
+  never post anything to the internet. Pause the log at any time. See
+  [docs/privacy.md](docs/privacy.md).
+
+## How a report works
+
+1. Press **SUPER + ALT + B**: the screenshot, window crop and the last 10 minutes of
+   events are saved (plus the replay, if armed).
+2. Tensaku opens for markup; Enter saves, Escape skips.
+3. A short form: what it is about (guessed from what was focused), bug or feature,
    title, description.
-
-The issue lands in a local database. Left-click the bug to see the list. Each
-issue can be handed to:
-
-- **Rix**, the Chief of Staff in [Agent Launcher](https://github.com/OmarchyFans/omarchy-fans-agent-launcher),
-  which triages it as a worker job.
-- **Your coding agent** (Omarchy's default agent, e.g. Claude Code), opened in
-  the project's folder with the issue brief.
-- **The author**, as a prefilled GitHub issue you review before submitting, or
-  the project's homepage with the report on your clipboard.
-
-The **viewer** (`omarchy-feedback open`, or Open on an issue) is a local web app
-that replays what led up to the issue: the video synced with the event timeline,
-or a step-through of the events over the screenshot when no replay was armed.
-You or an agent can mark up screenshots with pens, arrows, boxes and text notes,
-edit the description and notes, and download a **PDF** or **Markdown** summary.
-It installs as a web app and follows your Omarchy theme.
+4. The issue appears in the bar list and in the viewer (`omarchy-feedback open`).
 
 ## Install
 

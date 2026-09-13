@@ -1,0 +1,20 @@
+#!/bin/bash
+# Agent Launcher stub: `rix status` from $OF_TEST_DIR/rix.json (absent = not set up),
+# `delegate` logs its argv and the job file, prints the launcher's JSON line.
+printf 'omarchy-agent-launcher %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"
+case "$1 ${2:-}" in
+  "rix status")
+    if [[ -f $OF_TEST_DIR/rix.json ]]; then cat "$OF_TEST_DIR/rix.json"
+    else echo '{"name":"rix","configured":false,"running":false,"model":"","backend":"","provider":"","default_backend":"local","workers":[]}'; fi ;;
+  "delegate "*)
+    [[ -n ${OF_OAL_FAIL:-} ]] && { echo "delegate: backend offline" >&2; exit 1; }
+    name=""; job=""; args=("$@")
+    for ((i = 0; i < ${#args[@]}; i++)); do
+      [[ ${args[i]} == --name ]] && name=${args[i+1]}
+      [[ ${args[i]} == --job-file ]] && job=${args[i+1]}
+    done
+    [[ -f $job ]] && cp "$job" "$OF_TEST_DIR/delegated-job.md"
+    echo "saved $name"
+    printf '{"name":"%s","backend":"local","model":"m","mode":"unattended","parent":"rix","task_title":"t","result":"omarchy-agent-launcher result %s"}\n' "$name" "$name" ;;
+  *) exit 1 ;;
+esac

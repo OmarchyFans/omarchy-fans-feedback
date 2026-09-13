@@ -1,0 +1,3 @@
+#!/bin/bash
+# Logs the argv as a JSON array (one line) so tests can check every argument exactly.
+python3 -c 'import json,sys; print("omarchy-launch-tui " + json.dumps(sys.argv[1:]))' "$@" >>"${OF_TEST_LOG:-/dev/null}"

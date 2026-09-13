@@ -1,7 +1,7 @@
 # Marketplace submission draft (omacom/omarchy-plugin-marketplace)
 
 **Plugin id:** fans.omarchy.feedback
-**Repo:** https://github.com/OmarchyFans/omarchy-fans-feedback (to be created)
+**Repo:** https://github.com/OmarchyFans/omarchy-fans-feedback
 **Category:** Developer Tools  **Tags:** feedback, bugs, issues, agents
 
 **Summary:** Record feedback about anything on the desktop. SUPER + ALT + B takes a

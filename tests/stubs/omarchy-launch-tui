@@ -1,3 +1,7 @@
 #!/bin/bash
 # Logs the argv as a JSON array (one line) so tests can check every argument exactly.
+# OF_TUI_STAY=N keeps running like a real terminal would; OF_TUI_FAIL exits non-zero at once.
 python3 -c 'import json,sys; print("omarchy-launch-tui " + json.dumps(sys.argv[1:]))' "$@" >>"${OF_TEST_LOG:-/dev/null}"
+[[ -n ${OF_TUI_FAIL:-} ]] && exit 1
+[[ -n ${OF_TUI_STAY:-} ]] && exec sleep "$OF_TUI_STAY"
+exit 0

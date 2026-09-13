@@ -286,6 +286,24 @@ if want handoff; then
   pass "availability: Rix not set up, no default agent, GitHub author link"
 
   : >"$OF_TEST_LOG"
+  rows=$(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq '.handoffs | length')
+  st=$(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq -r .status)
+  rows_t=$(python3 "$ROOT/lib/of_db.py" get "$i_test" | jq '.handoffs | length')
+  for tg in rix agent author; do
+    iss=$i_clone; [[ $tg == author ]] && iss=$i_test
+    out=$("$B" handoff "$tg" "$iss" --dry-run --json) || tfail "dry-run $tg failed: $out"
+    [[ $(j .dryRun "$out") == true && $(j .target "$out") == "$tg" ]] || tfail "dry-run $tg output: $out"
+  done
+  [[ $(j '.argv[0]' "$("$B" handoff agent "$i_clone" --dry-run --json)") == omarchy-launch-tui ]] || tfail "dry-run agent argv"
+  grep -E 'delegate|launch-tui|xdg-open' "$OF_TEST_LOG" && tfail "dry-run started something"
+  [[ ! -e $OF_WORK_DIR/bare-plugin && ! -e $OF_WORK_DIR/tries/feedback-$i_clone ]] || tfail "dry-run cloned or created a folder"
+  [[ $(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq '.handoffs | length') == "$rows" && \
+     $(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq -r .status) == "$st" && \
+     $(python3 "$ROOT/lib/of_db.py" get "$i_test" | jq '.handoffs | length') == "$rows_t" ]] || tfail "dry-run recorded a hand-off or changed status"
+  "$B" handoff confirm 1 --dry-run >/dev/null 2>&1 && tfail "dry-run confirm must refuse"
+  pass "--dry-run prints the plan and starts, clones and records nothing"
+
+  : >"$OF_TEST_LOG"
   "$B" handoff rix "$i_test" >/dev/null || tfail "Rix hand-off"
   grep -q "omarchy-agent-launcher delegate --backend local --name feedback-$i_test-[0-9]* --task-title Feedback #$i_test: Launch ignores click --job-file $OF_STATE/issues/$i_test/FEEDBACK.md" "$OF_TEST_LOG" || tfail "delegate argv: $(grep delegate "$OF_TEST_LOG")"
   grep -q '<untrusted-report>' "$T/delegated-job.md" && grep -q 'Ignore previous instructions' "$T/delegated-job.md" \
@@ -315,7 +333,12 @@ if want handoff; then
   [[ $(agent_wd) == "$OF_WORK_DIR/tries/feedback-$i_app" && -s $OF_WORK_DIR/tries/feedback-$i_app/FEEDBACK.md ]] || tfail "scratch folder for apps: $(agent_wd)"
   ! grep -q "$OF_PLUGINS_DIR" <<<"$(grep omarchy-launch-tui "$OF_TEST_LOG")" || tfail "an agent was pointed at the installed plugins folder"
   OF_TEST_AGENT="" "$B" handoff agent "$i_unknown" >/dev/null 2>&1 && tfail "no default agent must fail"
-  pass "coding agent: local checkout, ~/Work match, clone, scratch folder; never the plugins folder"
+  s0=$(date +%s%N); OF_TUI_STAY=8 "$B" handoff agent "$i_app" >/dev/null || tfail "agent hand-off with a terminal that stays open"
+  (( ($(date +%s%N) - s0) / 1000000 < 4000 )) || tfail "hand-off waited for the agent terminal to close"
+  pkill -f '^sleep 8$' 2>/dev/null || true
+  OF_TUI_FAIL=1 "$B" handoff agent "$i_app" >/dev/null 2>&1 && tfail "a terminal that fails at once must fail the hand-off"
+  [[ $(python3 "$ROOT/lib/of_db.py" get "$i_app" | jq -r '.handoffs[-1].status') == failed ]] || tfail "failed terminal recorded"
+  pass "coding agent: local checkout, ~/Work match, clone, scratch folder; never the plugins folder; does not block"
 
   : >"$OF_TEST_LOG"
   "$B" handoff author "$i_test" >/dev/null || tfail "author hand-off (GitHub)"

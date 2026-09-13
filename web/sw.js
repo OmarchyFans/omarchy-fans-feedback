@@ -1,6 +1,6 @@
 // App shell only. Issue data (/api), media and the theme are never cached.
 const CACHE = "omarchy-feedback-shell-v1";
-const SHELL = ["/", "/index.html", "/app.js", "/app.css", "/manifest.webmanifest", "/icon.svg", "/icon.png"];
+const SHELL = ["/", "/index.html", "/app.js", "/app.css", "/manifest.webmanifest", "/icon.svg", "/icon.png", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

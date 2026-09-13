@@ -51,7 +51,7 @@ MAX_BODY = 25 * 1024 * 1024
 MEDIA_TTL = 6 * 3600
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/app.css": "app.css",
           "/sw.js": "sw.js", "/manifest.webmanifest": "manifest.webmanifest", "/icon.svg": "icon.svg",
-          "/icon.png": "icon.png"}
+          "/icon.png": "icon.png", "/icon-192.png": "icon-192.png", "/icon-512.png": "icon-512.png"}
 CSP = ("default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; "
        "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
@@ -336,7 +336,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ctype = {"index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
                  "sw.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8",
                  "manifest.webmanifest": "application/manifest+json", "icon.svg": "image/svg+xml",
-                 "icon.png": "image/png"}.get(name, "application/octet-stream")
+                 "icon.png": "image/png", "icon-192.png": "image/png", "icon-512.png": "image/png"}.get(name, "application/octet-stream")
         extra = {"Cache-Control": "no-cache"}
         if name == "sw.js":
             extra["Service-Worker-Allowed"] = "/"

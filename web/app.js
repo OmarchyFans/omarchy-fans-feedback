@@ -231,6 +231,7 @@ function videoPlayer(stage, wrap, replay, items) {
     else toast("That event happened before the replay started.");
   }));
   if (!first) wrap.append(h("p", { class: "muted", text: "This replay has no start timestamp, so the timeline cannot follow the video." }));
+  else if (replay.meta.estimated) wrap.append(h("p", { class: "muted", text: "Timeline sync is approximate (within about a second)." }));
   return { stop() { video.pause(); } };
 }
 

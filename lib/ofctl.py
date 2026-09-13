@@ -54,6 +54,8 @@ def save_replay(dest, timeout=60.0):
     if not rep.get("armed"):
         print(json.dumps({"ok": False, "armed": False}))
         return 4
+    # The buffer ends about when we ask; remember that moment for the timeline sync.
+    asked_wall_us, asked_mono_us = time.time_ns() // 1000, time.monotonic_ns() // 1000
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
@@ -78,10 +80,29 @@ def save_replay(dest, timeout=60.0):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     import shutil
     shutil.move(src, dest)
+    estimated = False
     if os.path.exists(src + ".ts"):
         shutil.move(src + ".ts", dest + ".ts")
-    print(json.dumps({"ok": True, "path": dest, "bytes": os.path.getsize(dest)}))
+    else:
+        # gpu-screen-recorder writes no .ts for replay saves (verified 2026-09-12), so
+        # estimate the first frame as "when we asked" minus the clip's duration.
+        dur = video_seconds(dest) or float(rep.get("seconds") or 0)
+        with open(dest + ".ts", "w") as f:
+            f.write("monotonic_microsec realtime_microsec\n%d %d\n# estimated from the save time and the clip duration\n"
+                    % (asked_mono_us - int(dur * 1e6), asked_wall_us - int(dur * 1e6)))
+        estimated = True
+    print(json.dumps({"ok": True, "path": dest, "bytes": os.path.getsize(dest), "estimatedStart": estimated}))
     return 0
+
+
+def video_seconds(path):
+    try:
+        import subprocess
+        p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                           capture_output=True, text=True, timeout=15)
+        return float(p.stdout.strip()) if p.returncode == 0 and p.stdout.strip() else 0.0
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return 0.0
 
 
 def main(argv):

@@ -182,7 +182,10 @@ if want capture; then
   g=$(python3 "$ROOT/lib/of_db.py" get "$id")
   [[ $(j .subject_type "$g") == plugin && $(j .subject_id "$g") == test.plugin && $(j .repo_url "$g") == https://github.com/modpunk/test-plugin ]] || tfail "subject in db: $g"
   [[ $(j '[.attachments[].kind] | sort | join(",")' "$g") == "events,replay,screenshot,summary,window" ]] || tfail "attachments: $(j '[.attachments[].kind]' "$g")"
-  [[ $(j '.attachments[] | select(.kind=="replay") | .meta.firstFrameMs > 0' "$g") == true ]] || tfail "replay first-frame timestamp"
+  rm_meta=$(j '.attachments[] | select(.kind=="replay") | .meta' "$g")
+  [[ $(j '.firstFrameMs > 0 and .estimated == true' "$rm_meta") == true ]] || tfail "estimated replay start when the recorder writes no .ts: $rm_meta"
+  cap=$(j .capture_t_ms "$g"); ff=$(j .firstFrameMs "$rm_meta")
+  (( ff <= cap + 5000 && ff >= cap - 130000 )) || tfail "estimated start ($ff) not near the capture ($cap)"
   (( $(j .event_count "$g") >= 3 )) || tfail "events stored: $(j .event_count "$g")"
   [[ $(j .context.activewindow.class "$g") == kitty && $(j .status "$g") == new && $(j .source "$g") == key ]] || tfail "context: $g"
   grep -q "^# Launcher ignores the second click" "$D/summary.md" && grep -q "Leading up to the report" "$D/summary.md" \

@@ -123,11 +123,33 @@ async function loadRecorder() {
 }
 
 // ----------------------------------------------------------------- detail --
+// Same rules as of_report.timeline: a run of hidden keystrokes is one row, repeated
+// title changes keep the latest, a screenshot's capture start/stop is one row.
+function tidyEvents(events) {
+  const out = [];
+  for (const e of events) {
+    const d = e.data || {}, last = out[out.length - 1];
+    if (e.type === "daemon" || d.event === "windowtitle") continue;
+    if (e.type === "key" && d.redacted) {
+      if (last && last.typed) { last.typed += 1; last.label = "typed " + last.typed + " keys (text hidden)"; continue; }
+      out.push({ ...e, typed: 1, label: "typed 1 key (text hidden)" });
+    } else if (d.retitle && last && last.data && last.data.retitle) {
+      out[out.length - 1] = e;
+    } else if (e.type === "screencast" && String(d.data || "").startsWith("0,") && last && last.type === "screencast"
+               && String((last.data || {}).data || "").startsWith("1,") && e.t - last.t < 2000) {
+      last.label = "screenshot (" + String(d.data).split(",")[1] + ")";
+    } else {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
 async function openIssue(id) {
   if (S.player) { S.player.stop(); S.player = null; }
   const [issue, events] = await Promise.all([api("/api/issues/" + id), api("/api/issues/" + id + "/events")]);
   S.current = issue;
-  S.events = events.filter((e) => e.type !== "daemon");
+  S.events = tidyEvents(events);
   history.replaceState(null, "", location.pathname + "#issue=" + id);
   renderList();
   renderDetail();
@@ -209,7 +231,11 @@ function replayCard(i) {
 
 function highlight(items, idx) {
   items.forEach((li, n) => li.classList.toggle("now", n === idx));
-  if (idx >= 0 && items[idx]) items[idx].scrollIntoView({ block: "nearest" });
+  // Scroll only the list, never the page, while the video plays.
+  const li = items[idx], box = li && li.parentElement;
+  if (!box) return;
+  const top = li.offsetTop - box.offsetTop;
+  if (top < box.scrollTop || top + li.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top - box.clientHeight / 3;
 }
 
 function videoPlayer(stage, wrap, replay, items) {
@@ -221,6 +247,9 @@ function videoPlayer(stage, wrap, replay, items) {
     if (!first || !isFinite(video.duration)) return;
     const end = first + video.duration * 1000;
     S.events.forEach((e, n) => items[n] && items[n].classList.toggle("out", e.t < first || e.t > end + 1000));
+    const k = S.events.findIndex((e) => e.t >= first);
+    const li = items[k], box = li && li.parentElement;
+    if (box) box.scrollTop = li.offsetTop - box.offsetTop;
   };
   video.addEventListener("loadedmetadata", mark);
   video.addEventListener("timeupdate", () => { if (first) highlight(items, lastIndexAt(first + video.currentTime * 1000)); });

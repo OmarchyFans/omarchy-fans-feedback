@@ -94,6 +94,7 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--bg0); border: 1px solid var(--accent);
   border-radius: var(--radius); padding: 8px 14px; max-width: calc(100% - 32px); }
 
+@media (max-width: 600px) { .head input.title { font-size: 16px; } }
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }
   .list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 38vh; }

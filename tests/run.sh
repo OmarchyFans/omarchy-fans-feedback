@@ -18,7 +18,7 @@ export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_STATE_HOME="$T/state" XDG_
 export XDG_RUNTIME_DIR="$T/xdg-run" OF_RUNTIME="$T/run" OF_STATE="$T/state/omarchy-feedback" OF_HYPR_DIR="$T/hypr"
 export OF_UI_STUBS="$ROOT/tests/ui-stubs.sh" OF_ANSWERS="$T/answers" OF_ASKED="$T/asked" OF_TEST_LOG="$T/log" OF_TEST_DIR="$T"
 export OF_TICK=0.2 OF_HYPR_WAIT=5 PYTHONDONTWRITEBYTECODE=1 OF_VIEWER_HOST=127.0.0.1 OF_VIEWER_PORT=0
-export PATH="$ROOT/tests/stubs:$PATH" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export PATH="$ROOT/tests/stubs:$PATH" OF_TEST_STUBS="$ROOT/tests/stubs" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_RUNTIME_DIR"
 : >"$OF_TEST_LOG"; : >"$OF_ASKED"; : >"$OF_ANSWERS"
 B="$ROOT/bin/omarchy-feedback"
@@ -413,11 +413,17 @@ if want install; then
   HOME2="$T/home2"; mkdir -p "$HOME2/.config/hypr"; cp "$T/b2.lua" "$HOME2/.config/hypr/bindings.lua"
   out=$(HOME="$HOME2" "$ROOT/install.sh" --yes) || tfail "install.sh with an existing binding"
   grep -q "already bound" <<<"$out" && [[ $(cat "$HOME2/.config/hypr/bindings.lua") == "$(cat "$T/b2.lua")" ]] || tfail "must not clobber an existing SUPER + ALT + B: $out"
+  mkdir -p "$XDG_DATA_HOME/applications" "$XDG_DATA_HOME/icons/hicolor/256x256/apps"
+  printf '[Desktop Entry]\nName=Feedback\nExec=%s open\n' "$HOME/.config/omarchy/plugins/fans.omarchy.feedback/bin/omarchy-feedback" >"$XDG_DATA_HOME/applications/Feedback.desktop"
+  : >"$XDG_DATA_HOME/icons/hicolor/256x256/apps/feedback.png"
   "$ROOT/uninstall.sh" >/dev/null || tfail "uninstall.sh"
+  [[ ! -e $XDG_DATA_HOME/applications/Feedback.desktop && ! -e $XDG_DATA_HOME/icons/hicolor/256x256/apps/feedback.png ]] || tfail "web app launcher left behind"
+  printf '[Desktop Entry]\nName=Feedback\nExec=someone-elses-app\n' >"$XDG_DATA_HOME/applications/Feedback.desktop"
+  "$ROOT/uninstall.sh" >/dev/null && [[ -e $XDG_DATA_HOME/applications/Feedback.desktop ]] || tfail "uninstall removed a Feedback launcher that is not ours"
   [[ ! -e $HOME/.local/bin/omarchy-feedback ]] && ! grep -q "fans.omarchy.feedback" "$HOME/.config/hypr/bindings.lua" \
     && ! grep -q '"feedback' "$M" && grep -q '"agents"' "$M" && grep -q "Claude profile" "$HOME/.config/hypr/bindings.lua" || tfail "uninstall left entries or removed others"
   python3 -c "import json,re,sys; s=open(sys.argv[1]).read(); json.loads(re.sub(r'^\s*//.*$', '', s, flags=re.M))" "$M" || tfail "menu invalid after uninstall: $(cat "$M")"
-  pass "idempotent install, no clobbering, clean uninstall"
+  pass "idempotent install, no clobbering, clean uninstall (web app launcher only if ours)"
 fi
 
 echo "== tree: no symlinks, no __pycache__, manifest"
@@ -425,4 +431,15 @@ echo "== tree: no symlinks, no __pycache__, manifest"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -name __pycache__ -print) ]] || tfail "__pycache__ created in the tree"
 jq -e '.id=="fans.omarchy.feedback" and .entryPoints.barWidget=="Panel.qml"' "$ROOT/manifest.json" >/dev/null || tfail manifest
 pass "tree"
+
+echo "== trusted PATH: shadow executables and foreign stub folders are ignored"
+mkdir -p "$T/shadow"
+printf '#!/bin/bash\ntouch %q\nexit 0\n' "$T/shadow-ran" >"$T/shadow/jq"; cp "$T/shadow/jq" "$T/shadow/python3"; chmod +x "$T/shadow/jq" "$T/shadow/python3"
+printf 'touch %q\n' "$T/uistub-ran" >"$T/evil-ui.sh"
+v=$(env -u OF_TEST_STUBS PATH="$T/shadow:$PATH" OF_UI_STUBS="$T/evil-ui.sh" "$B" --version)
+[[ ! -e $T/shadow-ran && $v == "omarchy-feedback $(jq -r .version "$ROOT/manifest.json")" ]] || tfail "a jq/python3 earlier in PATH was used ($v)"
+OF_TEST_STUBS="$T/shadow" "$B" list --json >/dev/null 2>&1
+[[ ! -e $T/shadow-ran ]] || tfail "OF_TEST_STUBS pointing outside the plugin was honoured"
+[[ ! -e $T/uistub-ran ]] || tfail "OF_UI_STUBS pointing outside the plugin was sourced"
+pass "tools resolve from system folders only"
 echo "All tests passed."

@@ -31,8 +31,15 @@
 #        --json     machine output where supported
 set -uo pipefail
 
+# Tools come only from root-owned system folders, never from the caller's PATH, so a
+# file in a user-writable folder such as ~/.local/bin cannot stand in for hyprctl,
+# python3 or grim. The daemon and every helper inherit this PATH. The test suite may
+# put the plugin's own tests/stubs (and nothing else) in front.
+PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin
+export PATH
 OF_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 OF_ROOT="$(cd -- "$(dirname -- "$OF_SELF")/.." && pwd)"
+[[ -n ${OF_TEST_STUBS:-} && $OF_TEST_STUBS == "$OF_ROOT/tests/stubs" ]] && PATH="$OF_TEST_STUBS:$PATH"
 OF_LIB="$OF_ROOT/lib"
 OF_VERSION=$(jq -r .version "$OF_ROOT/manifest.json" 2>/dev/null || echo dev)
 
@@ -43,7 +50,7 @@ source "$OF_LIB/issues.sh"
 source "$OF_LIB/handoff.sh"
 source "$OF_LIB/viewer.sh"
 # shellcheck source=/dev/null
-[[ -n ${OF_UI_STUBS:-} ]] && source "$OF_UI_STUBS"
+[[ -n ${OF_UI_STUBS:-} && $OF_UI_STUBS == "$OF_ROOT/tests/ui-stubs.sh" ]] && source "$OF_UI_STUBS"
 
 usage() { awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$OF_SELF"; }
 

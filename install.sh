@@ -13,6 +13,10 @@
 # timestamped backup is taken before a config file is appended to.
 set -euo pipefail
 REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Tools only from root-owned system folders (see bin/omarchy-feedback); tests may add the plugin's own stubs.
+PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin
+[[ -n ${OF_TEST_STUBS:-} && $OF_TEST_STUBS == "$REPO/tests/stubs" ]] && PATH="$OF_TEST_STUBS:$PATH"
+export PATH
 BIN="$REPO/bin/omarchy-feedback"
 MARK="fans.omarchy.feedback"
 YES=0; [[ ${1:-} == --yes ]] && YES=1

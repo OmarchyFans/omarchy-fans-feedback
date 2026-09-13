@@ -13,6 +13,7 @@ One instance per session, guarded by flock on $RT/daemon.lock. It
     on Hyprland's command socket, same rule as omarchy-hyprland-session-locked);
   - writes everything to one-minute JSONL segments on tmpfs, keeping 12 minutes;
   - runs gpu-screen-recorder in replay mode while armed (auto-disarm: 30 min, lock, monitor change);
+  - serves the local web viewer on http://127.79.33.1:7741 (lib/of_viewer.py, loopback only);
   - answers one-line JSON requests on $RT/ctl.sock (status, snap, pause, resume, arm, disarm, stop);
   - keeps $RT/status.json fresh (the bar chip reads it; its mtime is the heartbeat).
 Nothing here is written inside ~/.config/omarchy/plugins.
@@ -35,6 +36,7 @@ import time  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import of_events  # noqa: E402
 import of_keys  # noqa: E402
+import of_viewer  # noqa: E402
 
 VERSION = "0.3.0"
 
@@ -123,6 +125,8 @@ class Daemon:
         self.next_truncate = time.monotonic() + 3600
         self.replay = None          # {"proc", "monitor", "armedAt", "seconds", "ipc", "dir"}
         self.replay_note = ""       # why the last replay ended
+        self.viewer = None
+        self.viewer_info = {"url": "", "error": ""}
 
     # ---------------------------------------------------------------- basics --
     def emit(self, ev):
@@ -156,7 +160,7 @@ class Daemon:
                 "keyListener": self.lua_ok, "keyListenerError": "" if self.lua_ok else self.lua_error,
                 "hyprland": self.s2 is not None, "events": self.events_written,
                 "keepMinutes": self.log.keep if self.log else of_events.KEEP_MINUTES,
-                "replay": self.replay_status()}
+                "replay": self.replay_status(), "viewer": self.viewer_info}
 
     # -------------------------------------------------------------- replay --
     # gpu-screen-recorder in replay mode keeps the last N seconds in RAM and
@@ -436,6 +440,12 @@ class Daemon:
             self.running = False
 
         self.log.write({"type": "daemon", "event": "start", "version": VERSION})
+        if self.running and os.environ.get("OF_VIEWER", "1") != "0":
+            try:
+                self.viewer, self.viewer_info = of_viewer.start(VERSION)
+            except OSError as e:
+                self.viewer_info = {"url": "", "error": str(e)}
+                print("feedbackd: viewer did not start: %s" % e, file=sys.stderr)
         self.check_lock()
         self.arm()
         self.next_rearm = time.monotonic() + 60
@@ -483,7 +493,10 @@ class Daemon:
         self.on_raw()
         self.log.write({"type": "daemon", "event": "stop"})
         self.log.close()
-        for p in (self.ctl_path, self.status_path, self.raw):
+        if self.viewer:
+            self.viewer.shutdown()
+            self.viewer.server_close()
+        for p in (self.ctl_path, self.status_path, self.raw, os.path.join(self.rt, "viewer.json")):
             try:
                 os.remove(p)
             except OSError:

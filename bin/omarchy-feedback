@@ -12,6 +12,8 @@
 #   omarchy-feedback show <id> [--json]      Markdown summary, or the full record as JSON
 #   omarchy-feedback set <id> status|notes|title|description|kind <value>
 #   omarchy-feedback delete <id>
+#   omarchy-feedback open [id]               the web viewer: replay, timeline, markup, export
+#   omarchy-feedback export <id> [--md|--pdf] [--out FILE]
 #
 # Hand-offs:
 #   omarchy-feedback handoff rix <id>        Rix (Agent Launcher's chief of staff) triages it as a worker job
@@ -39,6 +41,7 @@ source "$OF_LIB/daemon.sh"
 source "$OF_LIB/capture.sh"
 source "$OF_LIB/issues.sh"
 source "$OF_LIB/handoff.sh"
+source "$OF_LIB/viewer.sh"
 # shellcheck source=/dev/null
 [[ -n ${OF_UI_STUBS:-} ]] && source "$OF_UI_STUBS"
 
@@ -66,6 +69,8 @@ case "$cmd" in
   set)    cmd_set "$@" ;;
   delete) cmd_delete "$@" ;;
   handoff) cmd_handoff "$@" ;;
+  open)   cmd_open "$@" ;;
+  export) cmd_export "$@" ;;
   arm)    cmd_arm "$@" ;;
   disarm) cmd_disarm ;;
   daemon) cmd_daemon "$@" ;;

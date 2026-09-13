@@ -2,7 +2,7 @@
 # Tests for omarchy-feedback. Everything runs under throwaway XDG dirs with a
 # fake Hyprland (tests/fakehypr.py) and stubbed desktop tools on PATH; real
 # python3, sqlite3, jq and git are used. Nothing touches the real session.
-#   tests/run.sh [group...]     groups: unit lua daemon capture handoff install (default: all)
+#   tests/run.sh [group...]     groups: unit lua daemon capture handoff viewer install (default: all)
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 T=$(mktemp -d)
@@ -17,7 +17,7 @@ trap cleanup EXIT
 export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_STATE_HOME="$T/state" XDG_DATA_HOME="$T/data"
 export XDG_RUNTIME_DIR="$T/xdg-run" OF_RUNTIME="$T/run" OF_STATE="$T/state/omarchy-feedback" OF_HYPR_DIR="$T/hypr"
 export OF_UI_STUBS="$ROOT/tests/ui-stubs.sh" OF_ANSWERS="$T/answers" OF_ASKED="$T/asked" OF_TEST_LOG="$T/log" OF_TEST_DIR="$T"
-export OF_TICK=0.2 OF_HYPR_WAIT=5 PYTHONDONTWRITEBYTECODE=1
+export OF_TICK=0.2 OF_HYPR_WAIT=5 PYTHONDONTWRITEBYTECODE=1 OF_VIEWER_HOST=127.0.0.1 OF_VIEWER_PORT=0
 export PATH="$ROOT/tests/stubs:$PATH" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_RUNTIME_DIR"
 : >"$OF_TEST_LOG"; : >"$OF_ASKED"; : >"$OF_ANSWERS"
@@ -42,7 +42,7 @@ start_fakehypr() {
 }
 hypr_emit() { printf '%s\n' "$@" >>"$OF_HYPR_DIR/emit"; }
 
-GROUPS_ALL=(unit lua daemon capture handoff install)
+GROUPS_ALL=(unit lua daemon capture handoff viewer install)
 want() { local g; for g in "${SELECTED[@]}"; do [[ $g == "$1" ]] && return 0; done; return 1; }
 SELECTED=("$@"); (( ${#SELECTED[@]} )) || SELECTED=("${GROUPS_ALL[@]}")
 
@@ -332,6 +332,34 @@ if want handoff; then
   "$B" handoff decline "$hid2" >/dev/null || tfail decline
   [[ $(python3 "$ROOT/lib/of_db.py" handoff-get "$hid2" | jq -r .status) == declined && $("$B" handoff pending --json | jq length) == 0 ]] || tfail "declined"
   pass "viewer requests wait for a desktop confirmation; confirm once; decline"
+fi
+
+if want viewer; then
+  echo "== viewer: server security + API (python), open, export"
+  python3 -W error::ResourceWarning "$ROOT/tests/test_viewer.py" >"$T/viewer.out" 2>&1 || { cat "$T/viewer.out"; tfail "viewer tests"; }
+  pass "Host/token/Origin/Sec-Fetch-Site checks, signed media with ranges, markup, exports, no leaked connections"
+
+  start_fakehypr
+  "$B" daemon ensure || tfail "daemon ensure"
+  wait_for 5 test -s "$OF_RUNTIME/viewer.json" || tfail "viewer.json written by the daemon"
+  vurl=$(jq -r .url "$OF_RUNTIME/viewer.json")
+  [[ $vurl =~ ^http://127\.0\.0\.1:[0-9]+/$ ]] || tfail "viewer url: $vurl"
+  [[ $("$B" daemon status | jq -r .viewer.url) == "$vurl" ]] || tfail "status reports the viewer"
+  code=$(python3 -c "import urllib.request,sys; print(urllib.request.urlopen(sys.argv[1]).status)" "$vurl") || tfail "viewer answers"
+  [[ $code == 200 ]] || tfail "viewer shell status $code"
+  vid=$("$B" capture --no-form --no-annotate --json --title "Viewer via CLI" --subject omarchy 2>/dev/null | jq -r .id)
+  : >"$OF_TEST_LOG"
+  "$B" open "$vid" >/dev/null || tfail "open"
+  u=$(grep "^omarchy-launch-webapp " "$OF_TEST_LOG" | tail -n1 | cut -d' ' -f2)
+  tok=$(cat "$OF_STATE/viewer.token")
+  [[ $u == "${vurl}#t=${tok}&issue=$vid" ]] || tfail "open URL (token in the fragment): $u"
+  "$B" export "$vid" --md --out "$T/out.md" >/dev/null && grep -q "^# Viewer via CLI" "$T/out.md" || tfail "export --md"
+  "$B" export "$vid" --pdf --out "$T/out.pdf" >/dev/null && head -c 5 "$T/out.pdf" | grep -q "%PDF" || tfail "export --pdf"
+  grep -q -- "--headless=new .*--user-data-dir=$OF_RUNTIME/print-.*/profile .*--print-to-pdf=$T/out.pdf file://" "$OF_TEST_LOG" || tfail "chromium runs headless with a private profile: $(grep chromium "$OF_TEST_LOG")"
+  [[ -z $(ls -d "$OF_RUNTIME"/print-* 2>/dev/null) ]] || tfail "print temp folder left behind"
+  "$B" daemon stop
+  [[ ! -e $OF_RUNTIME/viewer.json ]] || tfail "viewer.json removed on stop"
+  pass "daemon serves the viewer; open passes the token in the fragment; Markdown and PDF export"
 fi
 
 if want install; then

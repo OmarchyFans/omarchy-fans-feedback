@@ -1,0 +1,4 @@
+#!/bin/bash
+# Headless Chromium stub: writes a tiny PDF where --print-to-pdf points, logs the args.
+printf 'chromium %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"
+for a; do case $a in --print-to-pdf=*) printf '%%PDF-1.4 fake' >"${a#--print-to-pdf=}" ;; esac; done

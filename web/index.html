@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Feedback</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="glyph" aria-hidden="true">󰃤</span> Feedback</div>
+    <div class="seg" role="tablist" aria-label="Filter">
+      <button type="button" data-filter="open" class="on" role="tab">Open</button>
+      <button type="button" data-filter="all" role="tab">All</button>
+    </div>
+    <input id="search" type="search" placeholder="Search issues" aria-label="Search issues">
+    <div id="recorder" class="recorder" aria-live="polite"></div>
+  </header>
+
+  <div id="connect" class="connect" hidden>
+    <h1>Connect the viewer</h1>
+    <p>Open the viewer once from the Feedback bar chip (Viewer, or Open on an issue) or run
+      <code>omarchy-feedback open</code>. That hands this window its access key; after that the installed app opens on its own.</p>
+  </div>
+
+  <main id="app" class="layout" hidden>
+    <aside class="list" aria-label="Issues">
+      <ul id="issues"></ul>
+      <p id="empty" class="empty" hidden>No issues here. Press SUPER + ALT + B when something goes wrong or you have an idea.</p>
+    </aside>
+
+    <section id="detail" class="detail" aria-live="polite">
+      <p class="empty">Pick an issue.</p>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

@@ -14,7 +14,7 @@ KEEP_MINUTES = 12
 
 # socket2 event name -> timeline type. Anything else is ignored.
 HYPR_TYPES = {
-    "activewindow": "window", "openwindow": "window", "closewindow": "window", "windowtitle": "window",
+    "activewindow": "window", "openwindow": "window", "closewindow": "window",
     "fullscreen": "window", "changefloatingmode": "window",
     "workspace": "workspace", "focusedmon": "monitor", "monitoradded": "monitor", "monitorremoved": "monitor",
     "openlayer": "layer", "closelayer": "layer", "submap": "submap", "activelayout": "keyboard",
@@ -222,6 +222,8 @@ def describe(ev):
         return "key " + (ev.get("combo") or "?") + (" (typed text hidden)" if ev.get("redacted") else "")
     if t == "window":
         e = ev.get("event")
+        if e == "activewindow" and ev.get("retitle"):
+            return "title %s — %s" % (ev.get("class") or "", ev.get("title") or "")
         if e == "activewindow":
             return "focus %s — %s" % (ev.get("class") or "(desktop)", ev.get("title") or "")
         if e == "openwindow":
@@ -243,6 +245,9 @@ def describe(ev):
         return "screen locked, key log paused" if ev.get("locked") else "screen unlocked, key log resumed"
     if t == "mark":
         return "── report captured ──"
+    if t == "screencast":
+        state, _, owner = (ev.get("data") or "").partition(",")
+        return "screen capture %s (%s)" % ("started" if state == "1" else "stopped", owner or "?")
     if t == "daemon":
         return "recorder %s" % ev.get("event", "")
     return "%s %s" % (t, ev.get("event", ev.get("data", "")))

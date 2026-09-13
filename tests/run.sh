@@ -118,6 +118,13 @@ if want daemon; then
   wait_for 5 seg_has "after resume" || tfail "events after resume"
   pass "pause stops the log and persists; resume restarts it"
 
+  sleep 0.5; before=$(cat "$OF_RUNTIME"/seg/*.jsonl | grep -c '"type":"cursor"')
+  hypr_emit "activewindow>>kitty,build" "activewindowv2>>5566aa" "activewindow>>kitty,build ◐" "activewindowv2>>5566aa"
+  wait_for 5 seg_has '"title":"build ◐","address":"5566aa","retitle":true' || tfail "title-only change not marked retitle"
+  sleep 0.5; after=$(cat "$OF_RUNTIME"/seg/*.jsonl | grep -c '"type":"cursor"')
+  (( after == before + 1 )) || tfail "pointer sampled on a title change (cursor events $before -> $after)"
+  pass "title-only changes are marked and do not sample the pointer"
+
   : >"$OF_TEST_LOG"
   "$B" daemon stop || tfail "stop"
   wait_for 5 daemon_gone || tfail "daemon still running"

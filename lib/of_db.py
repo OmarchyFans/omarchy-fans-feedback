@@ -94,10 +94,23 @@ def issue_dir(issue_id):
     return os.path.join(issues_dir(), str(int(issue_id)))
 
 
+class _Connection(sqlite3.Connection):
+    """Closes itself when the last reference goes (end of the function using it).
+
+    The viewer runs inside the long-lived daemon, so connections must not linger.
+    """
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 def connect():
     d = state_dir()
     os.makedirs(d, mode=0o700, exist_ok=True)
-    db = sqlite3.connect(os.path.join(d, "feedback.db"), timeout=10)
+    db = sqlite3.connect(os.path.join(d, "feedback.db"), timeout=10, factory=_Connection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     db.execute("PRAGMA journal_mode = WAL")

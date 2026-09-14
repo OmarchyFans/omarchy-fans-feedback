@@ -3,6 +3,13 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.5.0
+
+- Passwords, keys, tokens and account numbers are masked before anything is saved
+- Screenshots are read with OCR and secrets painted black; the replay is sampled
+- A critical alert tells you to rotate anything captured; author hand-off waits until you mark it rotated
+- `omarchy-feedback secrets` and `delete-replay`
+
 ## 0.4.1
 
 - Save Markdown and Save PDF put the file in Downloads and show where, with Show in Files and Copy path

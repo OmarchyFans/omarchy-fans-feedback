@@ -56,7 +56,9 @@ agent_target_json() {
 
 author_target_json() { # author_target_json <issue-json>
   jq -c '(.repo_url // "") as $r
-         | if ($r | test("^https://github\\.com/[^/]+/[^/]+$")) then {available:true, kind:"github", url:$r, reason:""}
+         | ([.secrets[]? | select(.rotated_at == null)] | length) as $open
+         | if $open > 0 then {available:false, reason:"A possible secret was captured with this issue: rotate it and mark it rotated first"}
+           elif ($r | test("^https://github\\.com/[^/]+/[^/]+$")) then {available:true, kind:"github", url:$r, reason:""}
            elif ($r | test("^https?://")) then {available:true, kind:"homepage", url:$r, reason:""}
            else {available:false, reason:"No project link for this subject"} end' <<<"$1"
 }

@@ -434,6 +434,13 @@ Panel {
                   + " · " + row.modelData.event_count + " events"
                   + (row.modelData.pending_handoffs > 0 ? " · waiting for you" : "")
               }
+              Text {
+                visible: row.modelData.secrets_open > 0
+                width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
+                color: Color.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                text: "󰌾 " + (row.modelData.secrets_open === 1 ? "A possible secret was" : row.modelData.secrets_open + " possible secrets were")
+                  + " captured and masked. It may be compromised: rotate it as soon as possible. Open for details."
+              }
               Flow {
                 width: parent.width
                 spacing: Style.space(4)
@@ -456,10 +463,24 @@ Panel {
                   onClicked: if (root.available("agent")) { root.close(); root.act([root.cli, "handoff", "agent", String(row.modelData.id)]) }
                 }
                 Button {
+                  readonly property bool ok: row.modelData.repo_url && !(row.modelData.secrets_open > 0)
                   text: "Author"; iconText: "󰊤"; fontFamily: root.fontFamily
-                  foreground: row.modelData.repo_url ? root.foreground : root.dim
-                  tooltipText: row.modelData.repo_url ? "Open a prefilled issue at " + row.modelData.repo_url + " (you review and submit)" : "No project link for this subject"
-                  onClicked: if (row.modelData.repo_url) { root.close(); root.act([root.cli, "handoff", "author", String(row.modelData.id)]) }
+                  foreground: ok ? root.foreground : root.dim
+                  tooltipText: row.modelData.secrets_open > 0 ? "Rotate the captured secret and mark it rotated before sending this anywhere public"
+                    : (row.modelData.repo_url ? "Open a prefilled issue at " + row.modelData.repo_url + " (you review and submit)" : "No project link for this subject")
+                  onClicked: if (ok) { root.close(); root.act([root.cli, "handoff", "author", String(row.modelData.id)]) }
+                }
+                Button {
+                  visible: row.modelData.secrets_open > 0
+                  text: "Rotated"; iconText: "󰌾"; foreground: Color.urgent; fontFamily: root.fontFamily
+                  tooltipText: "I have rotated (changed or revoked) the captured secrets"
+                  onClicked: root.act([root.cli, "secrets", "rotated", String(row.modelData.id)])
+                }
+                Button {
+                  visible: row.modelData.secrets_open > 0 && row.modelData.attachment_kinds.indexOf("replay") >= 0
+                  text: "Delete replay"; iconText: "󰕧"; foreground: Color.urgent; fontFamily: root.fontFamily
+                  tooltipText: "A secret cannot be cut out of the video: delete the screen replay of this issue"
+                  onClicked: root.act([root.cli, "delete-replay", String(row.modelData.id)])
                 }
                 Button {
                   visible: row.modelData.status !== "fixed" && row.modelData.status !== "closed"

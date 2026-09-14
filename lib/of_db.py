@@ -29,8 +29,9 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import of_events  # noqa: E402
+import of_redact  # noqa: E402
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 STATUSES = ("new", "triaged", "sent-to-rix", "sent-to-agent", "sent-to-author", "fixed", "closed")
 OPEN_STATUSES = ("new", "triaged", "sent-to-rix", "sent-to-agent", "sent-to-author")
 KINDS = ("bug", "feature")
@@ -70,6 +71,14 @@ CREATE TABLE IF NOT EXISTS handoffs(
 CREATE TABLE IF NOT EXISTS status_log(
   issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   at INTEGER NOT NULL, from_status TEXT, to_status TEXT, by TEXT);
+CREATE TABLE IF NOT EXISTS secrets(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, masked TEXT NOT NULL, source TEXT NOT NULL,
+  detected_at INTEGER NOT NULL, notified_at INTEGER, rotated_at INTEGER);
+CREATE TABLE IF NOT EXISTS scans(
+  issue_id INTEGER PRIMARY KEY REFERENCES issues(id) ON DELETE CASCADE,
+  scanned_at INTEGER NOT NULL, images INTEGER NOT NULL DEFAULT 0, replay INTEGER NOT NULL DEFAULT 0, ocr TEXT);
 CREATE INDEX IF NOT EXISTS issues_status ON issues(status, updated_at);
 CREATE TRIGGER IF NOT EXISTS issues_touch AFTER UPDATE ON issues
   WHEN NEW.updated_at = OLD.updated_at
@@ -113,6 +122,7 @@ def connect():
     db = sqlite3.connect(os.path.join(d, "feedback.db"), timeout=10, factory=_Connection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
+    db.execute("PRAGMA secure_delete = ON")   # text replaced by its masked form is zeroed on disk, not left in free pages
     db.execute("PRAGMA journal_mode = WAL")
     if db.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
         db.executescript(SCHEMA)
@@ -142,6 +152,7 @@ def create(pending):
         raise SystemExit("of_db: pending folder must be %s/.pending-*" % root)
     with open(os.path.join(pending, "meta.json")) as f:
         meta = json.load(f)
+    found = scrub_pending(pending, meta)
     title = (meta.get("title") or "").strip()
     if not title:
         raise SystemExit("of_db: a title is required")
@@ -173,7 +184,95 @@ def create(pending):
         db.executemany("INSERT INTO events(issue_id, seq, t_ms, type, label, json) VALUES (?,?,?,?,?,?)",
                        [(issue_id, i, e.get("t"), e.get("type"), of_events.describe(e), json.dumps(e))
                         for i, e in enumerate(evs)])
-    return {"id": issue_id, "dir": dest, "events": len(evs)}
+        record_secrets(db, issue_id, found)
+    return {"id": issue_id, "dir": dest, "events": len(evs), "secrets": sum(1 for f in found if f["alert"])}
+
+
+# Files a capture writes whose text may carry secrets (window titles, the form, markup notes).
+TEXT_FILES = ("meta.json", "activewindow.json", "snap.json")
+
+
+def _write_json(path, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f)
+    os.replace(tmp, path)
+
+
+def scrub_pending(folder, meta):
+    """Redact meta (in place), the capture's JSON files and events.jsonl; returns findings with sources."""
+    found = []
+
+    def add(findings, source):
+        for f in findings:
+            f = dict(f, source=source)
+            if f not in found:
+                found.append(f)
+
+    for key, source in (("title", "title"), ("description", "description")):
+        if isinstance(meta.get(key), str):
+            meta[key], fs = of_redact.redact(meta[key])
+            add(fs, source)
+    win = (meta.get("context") or {}).get("activewindow") or {}
+    meta["context"], fs = of_redact.redact_obj(meta.get("context") or {})
+    add(fs, "title of the %s window" % (win.get("class") or "focused"))
+    _write_json(os.path.join(folder, "meta.json"), meta)
+    for name in TEXT_FILES[1:]:
+        path = os.path.join(folder, name)
+        try:
+            with open(path) as f:
+                obj = json.load(f)
+        except (OSError, ValueError):
+            continue
+        clean, fs = of_redact.redact_obj(obj)
+        add(fs, "title of the %s window" % (obj.get("class") if isinstance(obj, dict) and obj.get("class") else "focused"))
+        if fs:
+            _write_json(path, clean)
+    path = os.path.join(folder, "events.jsonl")
+    if os.path.exists(path):
+        lines, changed = [], False
+        for e in of_events.read_events(path):
+            clean, fs = of_redact.redact_obj(e)
+            for f in e.get("secrets") or []:   # the daemon already masked a window title
+                fs.append({"kind": f.get("kind"), "masked": f.get("masked"), "alert": True})
+            add(fs, "title of the %s window (event log)" % (e.get("class") or "a"))
+            changed = changed or clean != e
+            lines.append(json.dumps(clean))
+        if changed:
+            with open(path + ".tmp", "w") as f:
+                f.write("".join(line + "\n" for line in lines))
+            os.replace(path + ".tmp", path)
+    return found
+
+
+def record_secrets(db, issue_id, findings):
+    """Store alert findings (masked only); returns the rows that are new."""
+    new = []
+    for f in findings:
+        if not f.get("alert"):
+            continue
+        dup = db.execute("SELECT 1 FROM secrets WHERE issue_id = ? AND kind = ? AND masked = ? AND source = ? "
+                         "AND rotated_at IS NULL", (issue_id, f["kind"], f["masked"], f["source"])).fetchone()
+        if dup:
+            continue
+        cur = db.execute("INSERT INTO secrets(issue_id, kind, masked, source, detected_at) VALUES (?,?,?,?,?)",
+                         (issue_id, f["kind"], f["masked"], f["source"], now_ms()))
+        new.append(dict(f, id=cur.lastrowid))
+    return new
+
+
+def get_secrets(issue_id, open_only=False):
+    db = connect()
+    q = "SELECT * FROM secrets WHERE issue_id = ?" + (" AND rotated_at IS NULL" if open_only else "") + " ORDER BY id"
+    return [row(r) for r in db.execute(q, (int(issue_id),))]
+
+
+def mark_rotated(issue_id):
+    db = connect()
+    with db:
+        n = db.execute("UPDATE secrets SET rotated_at = ? WHERE issue_id = ? AND rotated_at IS NULL",
+                       (now_ms(), int(issue_id))).rowcount
+    return n
 
 
 def read_first_frame_ts(path):
@@ -195,7 +294,8 @@ def list_issues(status="open"):
     db = connect()
     q = ("SELECT i.*, (SELECT COUNT(*) FROM events e WHERE e.issue_id = i.id) AS event_count, "
          "(SELECT GROUP_CONCAT(kind) FROM attachments a WHERE a.issue_id = i.id) AS attachment_kinds, "
-         "(SELECT COUNT(*) FROM handoffs h WHERE h.issue_id = i.id AND h.status = 'pending-confirm') AS pending_handoffs "
+         "(SELECT COUNT(*) FROM handoffs h WHERE h.issue_id = i.id AND h.status = 'pending-confirm') AS pending_handoffs, "
+         "(SELECT COUNT(*) FROM secrets s WHERE s.issue_id = i.id AND s.rotated_at IS NULL) AS secrets_open "
          "FROM issues i")
     args = ()
     if status == "open":
@@ -231,6 +331,9 @@ def get_issue(issue_id):
     r["handoffs"] = [row(h) for h in db.execute("SELECT * FROM handoffs WHERE issue_id = ? ORDER BY id", (r["id"],))]
     r["status_log"] = [row(s) for s in db.execute("SELECT * FROM status_log WHERE issue_id = ? ORDER BY at", (r["id"],))]
     r["event_count"] = db.execute("SELECT COUNT(*) FROM events WHERE issue_id = ?", (r["id"],)).fetchone()[0]
+    r["secrets"] = [row(x) for x in db.execute("SELECT * FROM secrets WHERE issue_id = ? ORDER BY id", (r["id"],))]
+    scan = db.execute("SELECT * FROM scans WHERE issue_id = ?", (r["id"],)).fetchone()
+    r["scan"] = row(scan)
     r["dir"] = issue_dir(r["id"])
     return r
 
@@ -258,8 +361,13 @@ def set_field(issue_id, field, value, by="cli"):
         cur = db.execute("SELECT status FROM issues WHERE id = ?", (int(issue_id),)).fetchone()
         if not cur:
             raise SystemExit("of_db: no issue %s" % issue_id)
+        found = []
+        if field in ("title", "notes", "description"):
+            value, fs = of_redact.redact(value)
+            found = [dict(f, source=field) for f in fs]
         db.execute("UPDATE issues SET %s = ?, updated_at = ? WHERE id = ?" % field,
                    (value[:20000], now_ms(), int(issue_id)))
+        record_secrets(db, int(issue_id), found)
         if field == "status" and cur["status"] != value:
             db.execute("INSERT INTO status_log(issue_id, at, from_status, to_status, by) VALUES (?,?,?,?,?)",
                        (int(issue_id), now_ms(), cur["status"], value, by))
@@ -333,6 +441,11 @@ def main(argv):
         db = connect()
         with db:
             out = {"id": attach(db, int(args[0]), args[1], args[2], json.loads(args[3]) if len(args) > 3 else None)}
+    elif cmd == "detach" and len(args) == 2:
+        db = connect()
+        with db:
+            n = db.execute("DELETE FROM attachments WHERE issue_id = ? AND kind = ?", (int(args[0]), args[1])).rowcount
+        out = {"detached": n}
     elif cmd == "handoff-add":
         out = {"id": handoff_add(*args[:5])}
     elif cmd == "handoff-set":

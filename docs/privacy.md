@@ -46,6 +46,35 @@ Only then is anything written to disk, into
 Delete an issue from the bar panel (trash icon) or with `omarchy-feedback delete <id>`;
 its folder goes with it.
 
+## Passwords, keys, tokens and account numbers
+
+Feedback hides these before it writes anything, everywhere text comes in: window titles
+(before they reach even the in-memory event log), the saved window details, your title,
+description and notes, and text notes you put on a markup.
+
+| Looks like | Stored as | Asks you to rotate |
+|---|---|---|
+| A password (`password=…`, `--password …`, `Password: …`, `https://user:pass@…`), a private key block | `********` | yes |
+| An API key or token (GitHub, GitLab, Anthropic, OpenAI, AWS, Slack, Stripe, Google, Hugging Face, npm, JWTs, `token=`/`secret=`/`Bearer` values, long random strings) | first and last 4 characters: `ghp_…9f3e` | yes |
+| A card number (Luhn-checked), IBAN or social security number | `4111…1111` | yes |
+| A UUID, long hex id or long number | `550e…0000` | no |
+
+The value itself is never stored, only the masked form. After an issue is saved, the
+screenshot, the window crop and marked-up images are read with OCR (tesseract) and anything
+that looks like a secret is painted black in place. A sample of screen-replay frames is read
+too; a secret there cannot be cut out of a video, so you are told and can delete the replay
+(**Delete replay** in the bar list, or `omarchy-feedback delete-replay <id>`).
+
+When anything is found you get a critical notification: *possible GitHub token ghp_…9f3e
+captured in feedback #12 (title of the kitty window): it may be compromised, rotate it as soon
+as possible.* The issue shows a red warning in the bar list and the viewer until you mark it
+rotated, and sending it to the author (a public issue) stays locked until then. Exports, agent
+briefs and the author page are redacted once more on the way out.
+
+Issues saved by an older version are scanned and cleaned when the recorder starts. OCR and
+patterns cannot catch everything (a password typed into an unlabelled field, text too small or
+blurred to read): look at your screenshots before sending them anywhere.
+
 ## When you hand an issue off
 
 Nothing is sent anywhere by filing. A hand-off is always your click:

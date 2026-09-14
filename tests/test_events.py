@@ -136,6 +136,79 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(total, 8)
 
 
+def fake(prefix, body):
+    """Secret-shaped test values are assembled at runtime so the repository holds no literal key patterns."""
+    return prefix[:2] + prefix[2:] + body
+
+
+class RedactTests(unittest.TestCase):
+    def setUp(self):
+        import of_redact
+        self.r = of_redact
+
+    def check(self, text, kind, secret_part, alert=True):
+        clean, found = self.r.redact(text)
+        self.assertNotIn(secret_part, clean, text)
+        self.assertTrue(any(f["kind"] == kind and f["alert"] == alert for f in found), (text, found))
+        again, found2 = self.r.redact(clean)
+        self.assertEqual((again, found2), (clean, []), "redact must be idempotent")
+        for f in found:
+            self.assertNotIn(secret_part, f["masked"])
+        return clean
+
+    def test_known_formats_keep_only_the_ends(self):
+        gh = fake("ghp_", "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5")
+        clean = self.check("token " + gh, "GitHub token", gh[6:-6])
+        self.assertIn("ghp_…3zA5", clean)
+        self.check("ANTHROPIC_API_KEY=" + fake("sk-ant-", "api03-Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe"), "Anthropic key", "Zx9Yw8Vu7Ts6")
+        self.check("key " + fake("AK", "IAIOSFODNN7EXAMPLE"), "AWS access key", "IOSFODNN7EXA")
+        self.check("slack " + fake("xo", "xb-1234567890-abcdefghijkl"), "Slack token", "1234567890-abcd")
+        self.check("jwt " + fake("ey", "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n"),
+                   "JSON web token", "eyJzdWIiOiIxMjM0")
+
+    def test_passwords_become_stars(self):
+        self.assertEqual(self.check("mysql --password=hunter2secret -u root", "password", "hunter2"),
+                         "mysql --password=******** -u root")
+        self.assertEqual(self.check("Password: correct horse battery", "password", "horse"), "Password: ********")
+        self.assertEqual(self.check("git clone https://me:s3cretPass@example.com/r.git", "password in a URL", "s3cretPass"),
+                         "git clone https://me:********@example.com/r.git")
+        self.check("client_secret: " + "Qw3rTy8uIoP1aSdF", "secret", "Qw3rTy8uIoP1")
+
+    def test_account_numbers(self):
+        self.assertIn("4111…1111", self.check("card 4111 1111 1111 1111", "card number", "1111 1111 1111"))
+        self.check("IBAN DE89 3704 0044 0532 0130 00", "bank account (IBAN)", "3704 0044 0532")
+        self.check("SSN 123-45-6789", "ID number", "45-67")
+        clean = self.check("order 000123456789", "account or ID number", "0123456", alert=False)
+        self.assertIn("…", clean)
+        self.assertFalse([f for f in self.r.redact("card 4111 1111 1111 1112")[1] if f["alert"]])   # fails Luhn: not a card
+
+    def test_ids_are_shortened_without_alarm(self):
+        self.check("session 550e8400-e29b-41d4-a716-446655440000", "identifier", "e29b-41d4", alert=False)
+        self.check("commit 3f786850e387550fdab836ed7e6dc881de23001b", "identifier", "e387550fdab8", alert=False)
+
+    def test_ordinary_text_is_untouched(self):
+        for t in ("~/Work/omarchy-feedback — nvim", "Omarchy Help", "Rix · chat", "Password reset page - Firefox",
+                  "Feedback 0.4.1 released 2026-09-14 at 23:07:15", "5566f3e0a7e0", "Pinned 1789272421918",
+                  "/tmp/tmp.poLeX7aB9q/state/omarchy-feedback/issues/5/shot.png",
+                  "OmarchyFans-omarchy-fans-feedback-history-2026-09-13", "chrome-github.com__OmarchyFans-Default",
+                  "Super+Ctrl+Shift+L", "token budget exceeded", "the api key is in 1Password"):
+            self.assertEqual(self.r.redact(t), (t, []), t)
+
+    def test_objects_skip_structure(self):
+        gh = fake("ghp_", "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5")
+        obj, found = self.r.redact_obj({"class": "kitty", "title": "echo " + gh, "address": "5566f3e0a7e0", "list": [gh]})
+        self.assertEqual(obj["class"], "kitty")
+        self.assertNotIn(gh, json.dumps(obj))
+        self.assertEqual(len(found), 1)
+
+    def test_window_titles_are_redacted_at_the_socket(self):
+        gh = fake("ghp_", "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5")
+        ev = of_events.parse_hypr_line("activewindow>>kitty,export GITHUB_TOKEN=" + gh + " " + "x" * 300, t=1, mono=1)
+        self.assertNotIn(gh[6:-6], json.dumps(ev))
+        self.assertEqual(ev["secrets"][0]["kind"], "GitHub token")
+        self.assertLessEqual(len(ev["title"]), 200)
+
+
 class SubjectTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -282,6 +282,34 @@ class ViewerTests(unittest.TestCase):
             os.environ.pop("OF_EXPORT_DIR", None)
             os.environ.pop("OF_CHROMIUM", None)
 
+    def test_secrets_masked_in_edits_and_markup_then_rotated(self):
+        gh = "gh" + "p_" + "Zq8Wx7Vc6Bn5Ml4Kj3Hg2Fd1Sa9Po8Iu7Yt6"
+        issue = make_issue(title="Secrets via viewer", with_replay=False)
+        os.environ["OF_SCAN_SYNC"] = "1"
+        try:
+            r, body = self.req("PATCH", "/api/issues/%d" % issue, {"notes": "token is " + gh})
+            self.assertEqual(r.status, 200, body)
+            data = json.loads(body)
+            self.assertNotIn(gh[6:-6], data["notes"])
+            self.assertIn("ghp_…", data["notes"])
+            self.assertEqual([s["kind"] for s in data["secrets"] if not s["rotated_at"]], ["GitHub token"])
+            png = "data:image/png;base64," + base64.b64encode(PNG).decode()
+            r, body = self.req("POST", "/api/issues/%d/markup" % issue,
+                               {"base": "shot.png", "shapes": [{"type": "text", "x": 1, "y": 1, "text": "password: " + "hunter2x"}], "png": png})
+            self.assertEqual(r.status, 200, body)
+            with open(os.path.join(of_db.issue_dir(issue), "markup-1.json")) as f:
+                self.assertNotIn("hunter2x", f.read())
+            r, body = self.req("POST", "/api/issues/%d/rotated" % issue, {}, site="cross-site")
+            self.assertEqual(r.status, 403)
+            r, body = self.req("POST", "/api/issues/%d/rotated" % issue, {})
+            self.assertEqual(r.status, 200, body)
+            self.assertTrue(all(s["rotated_at"] for s in json.loads(body)["secrets"]))
+            r, body = self.req("GET", "/api/issues/%d/export.md" % issue)
+            self.assertNotIn(gh[6:-6].encode(), body)
+            self.assertIn(b"## Possible secrets", body)
+        finally:
+            os.environ.pop("OF_SCAN_SYNC", None)
+
     def test_handoff_request_only_records(self):
         r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "shell; rm -rf ~"})
         self.assertEqual(r.status, 400)

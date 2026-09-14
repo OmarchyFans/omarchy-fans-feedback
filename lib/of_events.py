@@ -8,7 +8,11 @@ A capture copies the last N minutes into the issue folder.
 import json
 import os
 import socket
+import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import of_redact  # noqa: E402
 
 KEEP_MINUTES = 12
 
@@ -85,13 +89,13 @@ def parse_hypr_line(raw, t=None, mono=None):
           "type": HYPR_TYPES[name], "event": name}
     if name == "activewindow":
         cls, _, title = data.partition(",")
-        ev.update({"class": cls, "title": title[:200]})
+        ev.update({"class": cls, "title": safe_text(title, ev)})
     elif name in ("openwindow",):
         parts = data.split(",", 3)
         if len(parts) == 4:
-            ev.update({"address": parts[0], "workspace": parts[1], "class": parts[2], "title": parts[3][:200]})
+            ev.update({"address": parts[0], "workspace": parts[1], "class": parts[2], "title": safe_text(parts[3], ev)})
         else:
-            ev["data"] = data[:200]
+            ev["data"] = safe_text(data, ev)
     elif name in ("closewindow",):
         ev["address"] = data
     elif name == "windowtitle":
@@ -106,8 +110,40 @@ def parse_hypr_line(raw, t=None, mono=None):
     elif name == "submap":
         ev["name"] = data
     else:
-        ev["data"] = data[:200]
+        ev["data"] = safe_text(data, ev)
     return ev
+
+
+def safe_text(text, ev, limit=200):
+    """Redact before truncating (a cut could hide half a key from the rules); note masked findings on ev."""
+    clean, found = of_redact.redact(text)
+    alerts = [{"kind": f["kind"], "masked": f["masked"]} for f in found if f["alert"]]
+    if alerts:
+        ev.setdefault("secrets", []).extend(a for a in alerts if a not in ev.get("secrets", []))
+    return clean[:limit]
+
+
+def scrub_segments(directory):
+    """Redact window titles already in the rolling log (written by a version without redaction)."""
+    try:
+        names = [n for n in os.listdir(directory) if n.endswith(".jsonl")]
+    except OSError:
+        return 0
+    changed = 0
+    for n in names:
+        path = os.path.join(directory, n)
+        out, dirty = [], False
+        for e in read_events(path):
+            clean, found = of_redact.redact_obj(e)
+            dirty = dirty or bool(found)
+            out.append(json.dumps(clean, ensure_ascii=False, separators=(",", ":")))
+        if dirty:
+            fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write("".join(line + "\n" for line in out))
+            os.replace(path + ".tmp", path)
+            changed += 1
+    return changed
 
 
 class SegmentLog:

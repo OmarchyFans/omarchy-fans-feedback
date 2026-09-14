@@ -17,6 +17,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import of_db  # noqa: E402
+import of_redact  # noqa: E402
 import of_events  # noqa: E402
 
 SUBJECT_WORDS = {"plugin": "Omarchy plugin", "app": "App", "omarchy": "Omarchy", "unknown": "Not sure"}
@@ -141,8 +142,28 @@ def summary(issue_id, events_limit=40):
             out.append("- %s → %s (%s)%s" % (ts(h["created_at"]), h["target"], h["status"],
                                                " · %s" % h["result_ref"] if h.get("result_ref") else ""))
         out.append("")
+    out += secrets_section(i)
     out.append("_Recorded with Omarchy Feedback._")
-    return "\n".join(out) + "\n"
+    return final("\n".join(out) + "\n")
+
+
+def secrets_section(i):
+    """Masked findings only; the values were never stored."""
+    rows = i.get("secrets") or []
+    if not rows:
+        return []
+    out = ["## Possible secrets", "",
+           "Feedback hid these before saving (only the masked form is kept). Anything not marked rotated "
+           "may be compromised: rotate it as soon as possible.", ""]
+    for r in rows:
+        out.append("- %s `%s` in %s: %s" % (r["kind"], r["masked"], r["source"],
+                                            "rotated %s" % ts(r["rotated_at"]) if r.get("rotated_at") else "**rotate now**"))
+    return out + [""]
+
+
+def final(text):
+    """Last pass before anything leaves: redact again in case a rule was added after the text was stored."""
+    return of_redact.redact(text)[0]
 
 
 FEEDBACK_HEADER = """# Feedback issue #{id}: {title}
@@ -190,7 +211,13 @@ def feedback(issue_id):
         report += "\n\nNotes:\n" + i["notes"]
     out += ["", "## The report", "", "<untrusted-report>", report.replace("</untrusted-report>", "</untrusted_report>"),
             "</untrusted-report>", ""]
-    return "\n".join(out)
+    if i.get("secrets"):
+        out += ["## Secrets", "",
+                "Values that looked like passwords, keys, tokens or account numbers were masked before this issue was "
+                "saved, and matching regions of the screenshots were painted black. Never try to recover them. The "
+                "screen replay cannot be cleaned; do not describe what it shows in text you write.", ""]
+        out += secrets_section(i)[4:]
+    return final("\n".join(out))
 
 
 def main(argv):

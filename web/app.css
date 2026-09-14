@@ -46,6 +46,11 @@ code { background: var(--soft); padding: 1px 5px; border-radius: 4px; }
 
 .detail { overflow: auto; padding: 16px 20px 40px; min-width: 0; }
 .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 0 0 14px; background: color-mix(in srgb, var(--bg2) 40%, transparent); }
+.card.danger { border-color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.card.danger h2 { color: var(--red); }
+.secrets { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.secrets li.rotated { opacity: .6; }
+.secrets code { overflow-wrap: anywhere; }
 .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
 .head { display: flex; flex-direction: column; gap: 8px; }
 .head input.title { font-size: 20px; font-weight: 700; background: transparent; border: 1px solid transparent; border-radius: var(--radius); padding: 2px 4px; width: 100%; }

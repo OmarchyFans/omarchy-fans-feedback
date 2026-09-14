@@ -144,6 +144,9 @@ capture_finish() { # capture_finish <P>: into the database, summary, notificatio
   py of_report.py summary "$id" >"$OF_ISSUES/$id/summary.md" && py of_db.py attach "$id" summary summary.md >/dev/null
   title=$(jq -r .title "$OF_ISSUES/$id/meta.json")
   notify "Feedback #$id saved" "$title" --exec "$OF_SELF" open "$id"
+  # Look for secrets the text rules cannot see (screenshots, the replay) and warn about any found.
+  if [[ ${OF_SCAN_SYNC:-0} == 1 ]]; then py of_secrets.py scan "$id" >/dev/null || true
+  else setsid -f nice -n 19 env PYTHONDONTWRITEBYTECODE=1 python3 "$OF_LIB/of_secrets.py" scan "$id" >/dev/null 2>&1 </dev/null; fi
   if (( JSON )); then jq -c . <<<"$out"; else say "Saved issue #$id: $title"; fi
 }
 

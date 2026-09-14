@@ -42,7 +42,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import of_db  # noqa: E402
 import of_events  # noqa: E402
+import of_redact  # noqa: E402
 import of_report  # noqa: E402
+import of_secrets  # noqa: E402
 
 WEB = os.path.join(os.path.dirname(HERE), "web")
 CLI = os.path.join(os.path.dirname(HERE), "bin", "omarchy-feedback")
@@ -187,6 +189,17 @@ def render_pdf(issue_id, out):
         if not os.path.exists(out) or os.path.getsize(out) == 0:
             raise RuntimeError("Chromium did not write the PDF: %s" % (p.stderr.strip()[-300:] or p.returncode))
     return out
+
+
+def scan_in_background(issue_id):
+    if os.environ.get("OF_SCAN_SYNC") == "1":
+        of_secrets.scan_issue(issue_id)
+        return
+    try:
+        subprocess.Popen(["nice", "-n", "19", sys.executable, os.path.join(HERE, "of_secrets.py"), "scan", str(int(issue_id))],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
 
 
 def export_dir():
@@ -363,7 +376,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = self.body_json()
         except (ValueError, UnicodeDecodeError) as e:
             return self.err(400, str(e))
-        m = re.fullmatch(r"/api/issues/(\d+)(/markup|/handoff|/save|/reveal)?", path)
+        m = re.fullmatch(r"/api/issues/(\d+)(/markup|/handoff|/save|/reveal|/rotated)?", path)
         if not m:
             return self.err(404, "not found")
         issue_id, sub = int(m.group(1)), m.group(2)
@@ -377,6 +390,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send(200, save_export(issue_id, body["format"]))
                 except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
                     return self.err(500, str(e))
+            if verb == "POST" and sub == "/rotated":
+                of_db.mark_rotated(issue_id)
+                self.refresh_summary(issue_id)
+                return self.send(200, self.issue_payload(issue_id))
             if verb == "POST" and sub == "/reveal":
                 p = saved_export(issue_id, body.get("path"))
                 if not p:
@@ -389,6 +406,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             return self.err(400, "%s must be text" % field)
                         of_db.set_field(issue_id, field, body[field], by="viewer")
                 self.refresh_summary(issue_id)
+                of_secrets.send_alerts(issue_id)   # anything masked in the new text: tell the user to rotate
                 return self.send(200, self.issue_payload(issue_id))
             if verb == "POST" and sub == "/markup":
                 return self.save_markup(issue_id, body)
@@ -524,6 +542,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         n = 1
         while os.path.exists(os.path.join(d, "markup-%d.png" % n)):
             n += 1
+        shapes, found = of_redact.redact_obj(shapes)   # text notes are masked before they are stored
         with open(os.path.join(d, "markup-%d.json" % n), "w") as f:
             json.dump({"base": base if re.fullmatch(r"[A-Za-z0-9._-]*", base) else "", "shapes": shapes}, f)
         with open(os.path.join(d, "markup-%d.png" % n), "wb") as f:
@@ -531,7 +550,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         db = of_db.connect()
         with db:
             of_db.attach(db, issue_id, "markup", "markup-%d.png" % n, {"shapes": "markup-%d.json" % n, "base": base})
+            of_db.record_secrets(db, issue_id, [dict(f, source="a note on markup-%d.png" % n) for f in found])
         self.refresh_summary(issue_id)
+        # The flattened PNG carries the typed notes as pixels: OCR it (and paint over secrets) in the background.
+        scan_in_background(issue_id)
         return self.send(200, self.issue_payload(issue_id))
 
     @staticmethod

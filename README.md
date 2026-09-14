@@ -38,6 +38,11 @@ screenshots and logs never leave the machine unless you send them.
   shows the full path with **Show in Files** and **Copy path**.
 - **Scriptable.** `omarchy-feedback capture --no-form ...` lets agents and scripts file
   issues too.
+- **Secrets never recorded.** Passwords become `********`; API keys, tokens and card or account
+  numbers keep only their ends (`ghp_…9f3e`) before anything is saved: window titles in the event log,
+  your title, description, notes and markup notes. Screenshots are read with OCR and any secret is
+  painted black. If one was captured, Feedback tells you right away that it may be compromised and
+  to rotate it, and keeps the author hand-off locked until you mark it rotated.
 - **Private by design.** The viewer listens on loopback only, and scripts and agents
   never post anything to the internet. Pause the log at any time. See
   [docs/privacy.md](docs/privacy.md).
@@ -104,6 +109,8 @@ omarchy-feedback export <id> --md|--pdf [--out FILE]
 omarchy-feedback arm [seconds] | disarm | pause | resume
 omarchy-feedback daemon ensure|status|stop|restart
 omarchy-feedback update-check | update-dismiss <version> | update-run
+omarchy-feedback secrets <id> | secrets scan <id> | secrets scan-all | secrets rotated <id>
+omarchy-feedback delete-replay <id>
 ```
 
 `capture --no-form` lets scripts and agents file issues too.

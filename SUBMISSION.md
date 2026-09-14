@@ -44,6 +44,12 @@ anything, so nothing in a user-writable folder such as `~/.local/bin` can stand 
 Launcher is called by its installed plugin path. `tests/run.sh` checks that a shadow `jq`/`python3`
 earlier in `PATH` is ignored.
 
+**Secret handling:** text that looks like a password, key, token or account number is masked
+before it is stored (window titles, form fields, notes, markup notes); saved screenshots are read
+with the locally installed `tesseract` and matching regions painted black with `ffmpeg`; findings
+keep only the masked form, raise a critical desktop notification asking the user to rotate, and
+block the public author hand-off until marked rotated. All local, no network.
+
 **Not present:** privilege escalation, service management (the daemon is started by
 the widget), dynamic code loading, credential access, remote endpoints.
 

@@ -169,7 +169,33 @@ function label(a) {
 function renderDetail() {
   const i = S.current;
   const d = $("#detail");
-  d.replaceChildren(headCard(i), replayCard(i), shotsCard(i), textCard(i), handoffCard(i), exportCard(i));
+  d.replaceChildren(...[secretsCard(i), headCard(i), replayCard(i), shotsCard(i), textCard(i), handoffCard(i), exportCard(i)].filter(Boolean));
+}
+
+// Possible secrets captured with the issue: masked previews only (the values were never stored).
+function openSecrets(i) { return (i.secrets || []).filter((s) => !s.rotated_at); }
+
+function secretsCard(i) {
+  const all = i.secrets || [];
+  if (!i.scan && !all.length) {
+    return h("div", { class: "card note" }, h("p", { class: "muted", text: "Checking the screenshots and replay for passwords, keys and account numbers…" }));
+  }
+  if (!all.length) return null;
+  const open = openSecrets(i);
+  const hasReplay = (i.attachments || []).some((a) => a.kind === "replay");
+  const list = h("ul", { class: "secrets" }, ...all.map((s) =>
+    h("li", { class: s.rotated_at ? "rotated" : "" }, h("strong", { text: s.kind }), " ", h("code", { text: s.masked }),
+      h("span", { class: "muted", text: " in " + s.source + (s.rotated_at ? " · rotated " + stamp(s.rotated_at) : "") }))));
+  const rotated = h("button", { class: "btn primary", type: "button", text: "I've rotated these", onclick: async () => {
+    try { S.current = await api("/api/issues/" + i.id + "/rotated", { method: "POST", body: {} }); renderDetail(); toast("Marked rotated."); }
+    catch (e) { toast(e.message); }
+  } });
+  return h("div", { class: "card " + (open.length ? "danger" : "note") },
+    h("h2", { text: open.length ? "Possible secrets captured: rotate them now" : "Secrets (all rotated)" }),
+    open.length ? h("p", { text: "Feedback found what looks like a password, key, token or account number while saving this issue. It kept only the masked form below and painted over it in the screenshots, but it was on your screen and may be compromised. Change or revoke it as soon as possible, then mark it rotated." }) : null,
+    list,
+    open.length && hasReplay ? h("p", { class: "muted", text: "A secret cannot be cut out of the screen replay. Delete the replay from the bar list (Delete replay) or run: omarchy-feedback delete-replay " + i.id }) : null,
+    open.length ? h("div", { class: "row" }, rotated) : null);
 }
 
 function headCard(i) {
@@ -475,7 +501,8 @@ function handoffCard(i) {
     h("div", { class: "row" },
       h("button", { class: "btn", type: "button", text: "Send to Rix", onclick: () => req("rix", "Rix") }),
       h("button", { class: "btn", type: "button", text: "Send to coding agent", onclick: () => req("agent", "your coding agent") }),
-      h("button", { class: "btn", type: "button", text: "Send to author", disabled: !safeHttp(i.repo_url), onclick: () => req("author", "the author") })),
+      h("button", { class: "btn", type: "button", text: "Send to author", disabled: !safeHttp(i.repo_url) || openSecrets(i).length > 0,
+        title: openSecrets(i).length ? "Rotate the captured secret and mark it rotated first" : "", onclick: () => req("author", "the author") })),
     list);
 }
 

@@ -12,6 +12,9 @@
 #   omarchy-feedback show <id> [--json]      Markdown summary, or the full record as JSON
 #   omarchy-feedback set <id> status|notes|title|description|kind <value>
 #   omarchy-feedback delete <id>
+#   omarchy-feedback secrets <id> | secrets scan <id> | secrets scan-all | secrets rotated <id>
+#                                            secrets captured with an issue (masked only), marking them rotated
+#   omarchy-feedback delete-replay <id>      remove an issue's screen replay
 #   omarchy-feedback open [id]               the web viewer: replay, timeline, markup, export
 #   omarchy-feedback export <id> [--md|--pdf] [--out FILE]
 #
@@ -80,6 +83,8 @@ case "$cmd" in
   list)   cmd_list "$@" ;;
   show)   cmd_show "$@" ;;
   set)    cmd_set "$@" ;;
+  secrets) cmd_secrets "$@" ;;
+  delete-replay) cmd_delete_replay "$@" ;;
   delete) cmd_delete "$@" ;;
   handoff) cmd_handoff "$@" ;;
   open)   cmd_open "$@" ;;

@@ -18,6 +18,7 @@ export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_STATE_HOME="$T/state" XDG_
 export XDG_RUNTIME_DIR="$T/xdg-run" OF_RUNTIME="$T/run" OF_STATE="$T/state/omarchy-feedback" OF_HYPR_DIR="$T/hypr"
 export OF_UI_STUBS="$ROOT/tests/ui-stubs.sh" OF_ANSWERS="$T/answers" OF_ASKED="$T/asked" OF_TEST_LOG="$T/log" OF_TEST_DIR="$T"
 export OF_TICK=0.2 OF_HYPR_WAIT=5 PYTHONDONTWRITEBYTECODE=1 OF_VIEWER_HOST=127.0.0.1 OF_VIEWER_PORT=0
+export OF_SCAN_ON_START=0 OF_SCAN_SYNC=1   # the secret scan runs in the foreground so tests can check its result
 export PATH="$ROOT/tests/stubs:$PATH" OF_TEST_STUBS="$ROOT/tests/stubs" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_RUNTIME_DIR"
 : >"$OF_TEST_LOG"; : >"$OF_ASKED"; : >"$OF_ANSWERS"
@@ -42,7 +43,7 @@ start_fakehypr() {
 }
 hypr_emit() { printf '%s\n' "$@" >>"$OF_HYPR_DIR/emit"; }
 
-GROUPS_ALL=(unit lua daemon capture handoff viewer install update)
+GROUPS_ALL=(unit lua daemon capture handoff secrets viewer install update)
 want() { local g; for g in "${SELECTED[@]}"; do [[ $g == "$1" ]] && return 0; done; return 1; }
 SELECTED=("$@"); (( ${#SELECTED[@]} )) || SELECTED=("${GROUPS_ALL[@]}")
 
@@ -370,6 +371,84 @@ if want handoff; then
   "$B" handoff decline "$hid2" >/dev/null || tfail decline
   [[ $(python3 "$ROOT/lib/of_db.py" handoff-get "$hid2" | jq -r .status) == declined && $("$B" handoff pending --json | jq length) == 0 ]] || tfail "declined"
   pass "viewer requests wait for a desktop confirmation; confirm once; decline"
+fi
+
+if want secrets; then
+  echo "== secrets: masked at the socket, in captures and edits, OCR paints over, rotate alerts, author blocked"
+  export OF_PLUGINS_DIR="$T/plugins-s" OF_WORK_DIR="$T/work-s"; mkdir -p "$OF_PLUGINS_DIR" "$OF_WORK_DIR"
+  # Secret-shaped values are assembled here so the repository holds no literal key patterns.
+  gh="gh""p_Zq8Wx7Vc6Bn5Ml4Kj3Hg2Fd1Sa9Po8Iu7Yt6"; pw="Tr0ub4dor-and-3"; body="${gh:6:24}"
+  start_fakehypr
+  "$B" daemon ensure >/dev/null || tfail "daemon ensure"
+  hypr_emit "activewindow>>kitty,export GITHUB_TOKEN=$gh"
+  wait_for 5 seg_has '"kind":"GitHub token"' || tfail "window title with a token not masked in the log"
+  seg_has "$body" && tfail "raw token reached the rolling log"
+  "$B" daemon stop >/dev/null; wait_for 5 daemon_gone || tfail "daemon still running"
+  pass "a token in a window title is masked before the rolling log"
+
+  mkdir -p "$OF_HYPR_DIR"
+  printf '{"class":"kitty","title":"mysql --password=%s","pid":%d,"at":[10,40],"size":[600,400],"monitor":0}\n' "$pw" $$ >"$OF_HYPR_DIR/activewindow.json"
+  : >"$OF_TEST_LOG"
+  out=$("$B" capture --no-form --no-annotate --json --title "Login fails" --subject omarchy \
+        --description "I pasted $gh into the settings") || tfail "capture with secrets"
+  sid=$(j .id "$out")
+  [[ $(j .secrets "$out") -ge 2 ]] || tfail "capture reports the secrets it masked: $out"
+  g=$("$B" show "$sid" --json)
+  [[ $(j .description "$g") == "I pasted ghp_…Iu7Yt6 into the settings" || $(j .description "$g") == *"ghp_…"* ]] || tfail "description not masked: $(j .description "$g")"
+  [[ $(j .context.activewindow.title "$g") == "mysql --password=********" ]] || tfail "window title not masked: $(j .context.activewindow.title "$g")"
+  kinds=$(jq -r '[.secrets[].kind] | sort | unique | join(",")' <<<"$g")
+  [[ $kinds == *"GitHub token"* && $kinds == *"password"* ]] || tfail "secrets recorded: $kinds"
+  grep -q "^notify .*-u critical Possible\|^notify .*-u critical [0-9]* possible secrets captured in feedback #$sid" "$OF_TEST_LOG" || tfail "rotate notification: $(grep notify "$OF_TEST_LOG")"
+  [[ $(j .author.available "$("$B" handoff targets "$sid" --json)") == false ]] || tfail "author hand-off must be blocked while a secret is unrotated"
+  "$B" handoff author "$sid" >/dev/null 2>&1 && tfail "author hand-off ran with an unrotated secret"
+  "$B" show "$sid" | grep -q "## Possible secrets" || tfail "summary lists the masked secrets"
+  "$B" secrets rotated "$sid" >/dev/null || tfail "secrets rotated"
+  [[ $(j .author.available "$("$B" handoff targets "$sid" --json)") == true ]] || tfail "author hand-off available after rotating"
+  pass "captured text and window titles are masked, recorded masked, announced, and block the author hand-off until rotated"
+
+  : >"$OF_TEST_LOG"
+  "$B" set "$sid" notes "try password: $pw please" >/dev/null || tfail "set notes"
+  [[ $(j .notes "$("$B" show "$sid" --json)") == "try password: ******** please" || $(j .notes "$("$B" show "$sid" --json)") == "try password: ********" ]] || tfail "notes not masked: $(j .notes "$("$B" show "$sid" --json)")"
+  grep -q "^notify .*Possible password captured in feedback #$sid" "$OF_TEST_LOG" || tfail "notes secret announced: $(grep notify "$OF_TEST_LOG")"
+  pass "edits are masked and announced"
+
+  # An issue saved by an older version: raw text in the database, then scan-all cleans it.
+  old=$("$B" capture --no-form --no-annotate --json --title "Old issue" --subject omarchy --description "fine" | jq -r .id)
+  python3 - "$OF_STATE/feedback.db" "$old" "$gh" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1]); i = int(sys.argv[2])
+db.execute("UPDATE issues SET description = ? WHERE id = ?", ("legacy " + sys.argv[3], i))
+db.execute("DELETE FROM scans WHERE issue_id = ?", (i,)); db.commit()
+PY
+  "$B" secrets scan-all >/dev/null || tfail "scan-all"
+  [[ $(j .description "$("$B" show "$old" --json)") == "legacy ghp_…"* ]] || tfail "old issue not cleaned: $(j .description "$("$B" show "$old" --json)")"
+  pass "issues saved before redaction are cleaned by scan-all"
+
+  if command -v tesseract >/dev/null && command -v magick >/dev/null && [[ -x /usr/bin/ffmpeg ]]; then
+    font=$(fc-match -f '%{file}' monospace 2>/dev/null)
+    magick -size 1200x160 xc:'#1e1e2e' ${font:+-font "$font"} -pointsize 26 -fill '#cdd6f4' \
+      -annotate +30+70 "export GITHUB_TOKEN=$gh" -annotate +30+130 "Omarchy Help" "$OF_STATE/issues/$old/shot.png"
+    cp "$OF_STATE/issues/$old/shot.png" "$T/shot-before.png"
+    python3 "$ROOT/lib/of_db.py" attach "$old" screenshot shot.png >/dev/null 2>&1 || true
+    r=$(env PATH=/usr/bin:/bin OF_STATE="$OF_STATE" python3 "$ROOT/lib/of_secrets.py" scan "$old" --no-notify) || tfail "OCR scan"
+    jq -e '.open | map(select(.source | startswith("the screenshot"))) | length > 0' <<<"$r" >/dev/null || tfail "OCR finding: $r"
+    cmp -s "$T/shot-before.png" "$OF_STATE/issues/$old/shot.png" && tfail "screenshot was not painted over"
+    after=$(tesseract "$OF_STATE/issues/$old/shot.png" stdout 2>/dev/null)
+    grep -q "${gh:10:12}" <<<"$after" && tfail "token still readable after painting: $after"
+    grep -q "Omarchy Help" <<<"$after" || tfail "ordinary text must stay readable: $after"
+    pass "OCR finds a token in a screenshot and paints it black, leaving other text"
+  else
+    echo "  skip OCR (tesseract, magick or ffmpeg missing)"
+  fi
+
+  printf 'x' >"$OF_STATE/issues/$sid/replay.mp4"; python3 "$ROOT/lib/of_db.py" attach "$sid" replay replay.mp4 >/dev/null
+  "$B" delete-replay "$sid" >/dev/null || tfail "delete-replay"
+  [[ ! -e $OF_STATE/issues/$sid/replay.mp4 && $("$B" show "$sid" --json | jq '[.attachments[] | select(.kind == "replay")] | length') == 0 ]] || tfail "replay not deleted"
+  pass "delete-replay removes the video and its attachment"
+
+  grep -rqaF -- "$body" "$OF_STATE" "$OF_RUNTIME" 2>/dev/null && tfail "a raw token is still stored: $(grep -rlaF -- "$body" "$OF_STATE" "$OF_RUNTIME")"
+  grep -rqaF -- "$pw" "$OF_STATE" "$OF_RUNTIME" 2>/dev/null && tfail "a raw password is still stored: $(grep -rlaF -- "$pw" "$OF_STATE" "$OF_RUNTIME")"
+  pass "no raw secret anywhere in the state or runtime folders"
 fi
 
 if want viewer; then

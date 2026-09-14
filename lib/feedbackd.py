@@ -38,7 +38,7 @@ import of_events  # noqa: E402
 import of_keys  # noqa: E402
 import of_viewer  # noqa: E402
 
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 
 
 def runtime_dir():
@@ -427,6 +427,16 @@ class Daemon:
 
         self.log = of_events.SegmentLog(os.path.join(self.rt, "seg"),
                                         int(os.environ.get("OF_KEEP_MINUTES", of_events.KEEP_MINUTES)))
+        # Titles logged by a version without redaction are cleaned now; issues filed before it are
+        # scanned (text, screenshots, replay) in the background at low priority.
+        of_events.scrub_segments(os.path.join(self.rt, "seg"))
+        if os.environ.get("OF_SCAN_ON_START", "1") == "1":
+            try:
+                subprocess.Popen(["nice", "-n", "19", sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "of_secrets.py"), "scan-all"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError as e:
+                print("feedbackd: secret scan did not start: %s" % e, file=sys.stderr)
         of_keys.ensure_private_file(self.raw)
         self.raw_fd = os.open(self.raw, os.O_RDONLY | os.O_NONBLOCK)
         os.lseek(self.raw_fd, 0, os.SEEK_END)

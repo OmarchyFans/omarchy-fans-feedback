@@ -42,7 +42,7 @@ start_fakehypr() {
 }
 hypr_emit() { printf '%s\n' "$@" >>"$OF_HYPR_DIR/emit"; }
 
-GROUPS_ALL=(unit lua daemon capture handoff viewer install)
+GROUPS_ALL=(unit lua daemon capture handoff viewer install update)
 want() { local g; for g in "${SELECTED[@]}"; do [[ $g == "$1" ]] && return 0; done; return 1; }
 SELECTED=("$@"); (( ${#SELECTED[@]} )) || SELECTED=("${GROUPS_ALL[@]}")
 
@@ -448,4 +448,29 @@ OF_TEST_STUBS="$T/shadow" "$B" list --json >/dev/null 2>&1
 [[ ! -e $T/shadow-ran ]] || tfail "OF_TEST_STUBS pointing outside the plugin was honoured"
 [[ ! -e $T/uistub-ran ]] || tfail "OF_UI_STUBS pointing outside the plugin was sourced"
 pass "tools resolve from system folders only"
+if want update; then
+  echo "== update: the update check against file:// fixtures (docs/update-alerts.md)"
+  R="$T/raw"; mkdir -p "$R"
+  export OMARCHY_PLUGIN_UPDATE_RAW="file://$R" XDG_CACHE_HOME="$T/cache"
+  jq '.version = "9.9.9"' "$ROOT/manifest.json" >"$R/manifest.json"
+  printf '# Changelog\n\n## 9.9.9\n\n- Newest thing\n\n## 9.9.8\n\n- Older thing\n\n## 0.1.0\n\n- Ancient\n' >"$R/CHANGELOG.md"
+  out=$("$B" update-check 0.3.3) || tfail "update-check exited $?"
+  [[ $(j .latest "$out") == 9.9.9 && $(j .update_available "$out") == true && $(j '.notes|join(",")' "$out") == "Newest thing,Older thing" ]] || tfail "update-check: $out"
+  [[ $(j .panel "$out") == 0.3.3 && $(j .cli "$out") == "$(jq -r .version "$ROOT/manifest.json")" && $(j .mismatch "$out") == true ]] || tfail "older widget is a mismatch: $out"
+  out=$("$B" update-check); [[ $(j .mismatch "$out") == false && $(j .update_available "$out") == true ]] || tfail "same version, no mismatch: $out"
+  [[ -f $T/cache/omarchy-feedback/update-check.json ]] || tfail "no cache written"
+  out=$(OMARCHY_PLUGIN_UPDATE_RAW=file:///nonexistent "$B" update-check); [[ $(j .latest "$out") == 9.9.9 ]] || tfail "offline answer from cache: $out"
+  "$B" update-dismiss 9.9.9 || tfail "update-dismiss"
+  [[ $("$B" update-check | jq -r .dismissed) == 9.9.9 ]] || tfail "dismissed not recorded"
+  jq '.version = "0.0.1"' "$ROOT/manifest.json" >"$R/manifest.json"
+  out=$("$B" update-check --force); [[ $(j .update_available "$out") == false && $(j '.notes|length' "$out") == 0 ]] || tfail "nothing newer: $out"
+  mkdir -p "$XDG_CONFIG_HOME/omarchy-feedback"; echo '{"update_check": false}' >"$XDG_CONFIG_HOME/omarchy-feedback/config.json"
+  out=$("$B" update-check --force); [[ $(j .enabled "$out") == false && $(j .latest "$out") == null ]] || tfail "opt-out: $out"
+  rm "$XDG_CONFIG_HOME/omarchy-feedback/config.json"
+  out=$(OMARCHY_PLUGIN_UPDATE_PRINT=1 "$B" update-run all); [[ $(j '.argv[0]' "$out") == */omarchy-launch-tui && $(j '.argv[-1]' "$out") == all ]] || tfail "update-run argv: $out"
+  ! "$B" update-run bogus 2>/dev/null || tfail "update-run rejects unknown steps"
+  unset OMARCHY_PLUGIN_UPDATE_RAW
+  pass "check, notes, cache, offline, dismiss, opt-out, run"
+fi
+
 echo "All tests passed."

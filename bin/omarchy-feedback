@@ -27,6 +27,11 @@
 #   omarchy-feedback daemon ensure|status|stop|restart
 #   omarchy-feedback snap <file> [minutes]   copy the last N minutes of events into a file
 #
+# Updates (see docs/update-alerts.md):
+#   omarchy-feedback update-check [VERSION] [--force]   is a newer version published? (JSON, cached 6 h)
+#   omarchy-feedback update-dismiss <version>           stop offering that version
+#   omarchy-feedback update-run [all|install]           terminal: omarchy plugin update, install.sh, recorder restart
+#
 # Flags: --dry-run  print side-effecting commands instead of running them
 #        --json     machine output where supported
 set -uo pipefail
@@ -85,6 +90,9 @@ case "$cmd" in
   pause)  cmd_pause ;;
   resume) cmd_resume ;;
   snap)   cmd_snap "$@" ;;
+  update-check)   exec bash "$OF_LIB/update.sh" check "$@" ;;
+  update-dismiss) exec bash "$OF_LIB/update.sh" dismiss "$@" ;;
+  update-run)     exec bash "$OF_LIB/update.sh" run "$@" ;;
   help)   usage ;;
   *) fail "unknown command '$cmd' (try --help)" ;;
 esac

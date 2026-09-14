@@ -333,6 +333,11 @@ if want handoff; then
   [[ $(agent_wd) == "$OF_WORK_DIR/tries/feedback-$i_app" && -s $OF_WORK_DIR/tries/feedback-$i_app/FEEDBACK.md ]] || tfail "scratch folder for apps: $(agent_wd)"
   ! grep -q "$OF_PLUGINS_DIR" <<<"$(grep omarchy-launch-tui "$OF_TEST_LOG")" || tfail "an agent was pointed at the installed plugins folder"
   OF_TEST_AGENT="" "$B" handoff agent "$i_unknown" >/dev/null 2>&1 && tfail "no default agent must fail"
+  mkdir -p "$T/mise-bin"; printf '#!/bin/bash\ntouch %q\n' "$T/agent-ran" >"$T/mise-bin/myagent"; chmod +x "$T/mise-bin/myagent"
+  t=$(PATH="$T/mise-bin:$PATH" OF_TEST_AGENT=myagent "$B" handoff targets --json)
+  [[ $(j .agent.available "$t") == true && ! -e $T/agent-ran ]] || tfail "agent only on the user's PATH (e.g. mise) must count as installed, unrun: $t"
+  [[ $(j .agent.available "$(OF_TEST_AGENT=myagent "$B" handoff targets --json)") == false ]] || tfail "a missing agent must be unavailable"
+  [[ $(j .agent.available "$(OF_TEST_AGENT='x;y' "$B" handoff targets --json)") == false ]] || tfail "odd agent names must be refused"
   s0=$(date +%s%N); OF_TUI_STAY=8 "$B" handoff agent "$i_app" >/dev/null || tfail "agent hand-off with a terminal that stays open"
   (( ($(date +%s%N) - s0) / 1000000 < 4000 )) || tfail "hand-off waited for the agent terminal to close"
   pkill -f '^sleep 8$' 2>/dev/null || true
@@ -383,6 +388,7 @@ if want viewer; then
   vid=$("$B" capture --no-form --no-annotate --json --title "Viewer via CLI" --subject omarchy 2>/dev/null | jq -r .id)
   : >"$OF_TEST_LOG"
   "$B" open "$vid" >/dev/null || tfail "open"
+  wait_for 5 grep -q "^omarchy-launch-webapp " "$OF_TEST_LOG" || tfail "open did not launch the web app"   # launched in the background
   u=$(grep "^omarchy-launch-webapp " "$OF_TEST_LOG" | tail -n1 | cut -d' ' -f2)
   tok=$(cat "$OF_STATE/viewer.token")
   [[ $u == "${vurl}#t=${tok}&issue=$vid" ]] || tfail "open URL (token in the fragment): $u"

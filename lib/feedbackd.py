@@ -38,7 +38,7 @@ import of_events  # noqa: E402
 import of_keys  # noqa: E402
 import of_viewer  # noqa: E402
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 
 
 def runtime_dir():

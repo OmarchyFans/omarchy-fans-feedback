@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "fans.omarchy.feedback",
   "name": "Feedback",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "author": "modpunk (omarchy.fans)",
   "license": "MIT",
   "description": "Report bugs and ideas about anything on your Omarchy desktop in one keypress: a screenshot you can mark up, the events that led up to it (never typed text) and an optional screen replay, filed in a local issue list. Hand issues to Rix, your coding agent or the author, and replay or export them as PDF or Markdown from a local web viewer.",

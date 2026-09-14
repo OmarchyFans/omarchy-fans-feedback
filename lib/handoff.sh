@@ -47,7 +47,10 @@ rix_target_json() {
 agent_target_json() {
   local a; a=$(omarchy-default-agent 2>/dev/null)
   if [[ -z $a ]]; then jq -cn '{available:false, reason:"No default coding agent (omarchy default agent <name>)"}'
-  elif ! have "$a"; then jq -cn --arg a "$a" '{available:false, name:$a, reason:("\($a) is not installed")}'
+  elif [[ ! $a =~ ^[a-z][a-z0-9-]*$ ]]; then jq -cn --arg a "$a" '{available:false, name:$a, reason:"unrecognised default agent name"}'
+  # The agent runs in its own terminal with the session environment (omarchy-launch-tui), where
+  # tools such as mise-installed claude live; look it up there, without executing anything.
+  elif ! have "$a" && [[ -z $(PATH=$OF_USER_PATH type -P -- "$a") ]]; then jq -cn --arg a "$a" '{available:false, name:$a, reason:("\($a) is not installed")}'
   else jq -cn --arg a "$a" '{available:true, name:$a, reason:""}'; fi
 }
 

@@ -467,7 +467,7 @@ if want update; then
   mkdir -p "$XDG_CONFIG_HOME/omarchy-feedback"; echo '{"update_check": false}' >"$XDG_CONFIG_HOME/omarchy-feedback/config.json"
   out=$("$B" update-check --force); [[ $(j .enabled "$out") == false && $(j .latest "$out") == null ]] || tfail "opt-out: $out"
   rm "$XDG_CONFIG_HOME/omarchy-feedback/config.json"
-  out=$(OMARCHY_PLUGIN_UPDATE_PRINT=1 "$B" update-run all); [[ $(j '.argv[0]' "$out") == */omarchy-launch-tui && $(j '.argv[-1]' "$out") == all ]] || tfail "update-run argv: $out"
+  out=$(OMARCHY_PLUGIN_UPDATE_PRINT=1 "$B" update-run all); [[ $(j '.argv[0]' "$out") == *omarchy-launch-tui && $(j '.argv[-1]' "$out") == all ]] || tfail "update-run argv: $out"
   ! "$B" update-run bogus 2>/dev/null || tfail "update-run rejects unknown steps"
   unset OMARCHY_PLUGIN_UPDATE_RAW
   pass "check, notes, cache, offline, dismiss, opt-out, run"

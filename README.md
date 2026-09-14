@@ -14,6 +14,7 @@ screenshots and logs never leave the machine unless you send them.
 - **Knows what led up to it.** An always-on event log keeps the last 12 minutes of window
   focus, workspace and layer changes, shortcuts and the pointer position, and pauses while the
   screen is locked. **Typed text is never recorded.**
+- **Knows when it's out of date.** A dot on the chip and a banner in the popup say when a new version is out and what changed; *Update…* walks you through it.
 - **Optional screen replay.** Arm it from the bar and the last 2 minutes stay in memory,
   saved as a video only when you file an issue. It turns itself off after 30 minutes, on lock,
   or on a monitor change.
@@ -60,6 +61,24 @@ omarchy restart shell
 `install.sh` asks before each step: the `omarchy-feedback` command on your PATH,
 the SUPER + ALT + B keybinding (it never replaces an existing binding), a Feedback
 section in the Omarchy menu, and the viewer as an installed web app.
+### Updates
+
+About once every six hours, when the popup opens, it fetches this repository's
+`manifest.json` (one small HTTPS request, no personal data). If a newer version
+is out, a dot appears on the bug chip and the popup shows what changed, from
+`CHANGELOG.md`. *Update…* opens a terminal that runs `omarchy plugin update`
+(it shows the diff and asks), then `install.sh` (asks again), then offers to
+restart the recorder. *Later* hides that version. Set `"update_check": false`
+in `~/.config/omarchy-feedback/config.json` to turn the check off. By hand:
+
+```sh
+omarchy plugin update fans.omarchy.feedback
+~/.config/omarchy/plugins/fans.omarchy.feedback/install.sh
+omarchy-feedback daemon restart
+```
+
+See [docs/update-alerts.md](docs/update-alerts.md) for how it is built.
+
 ## Remove
 
 ```
@@ -83,6 +102,7 @@ omarchy-feedback open [id]
 omarchy-feedback export <id> --md|--pdf [--out FILE]
 omarchy-feedback arm [seconds] | disarm | pause | resume
 omarchy-feedback daemon ensure|status|stop|restart
+omarchy-feedback update-check | update-dismiss <version> | update-run
 ```
 
 `capture --no-form` lets scripts and agents file issues too.

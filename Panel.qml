@@ -41,6 +41,15 @@ Panel {
   property double now: Date.now()
   property int deleteId: 0
 
+  // updates: what `update-check` reported for this widget's version (docs/update-alerts.md)
+  property string version: ""
+  property var updateInfo: null
+  property bool updateHidden: false
+  readonly property bool updateAvailable: !!updateInfo && updateInfo.update_available === true
+                                          && updateInfo.dismissed !== updateInfo.latest
+  readonly property bool updateMismatch: !!updateInfo && updateInfo.mismatch === true
+  readonly property bool updatePending: !updateHidden && (updateAvailable || updateMismatch)
+
   readonly property bool recorderUp: daemon !== null && daemon.running === true && now - daemon.heartbeat < 20000
   readonly property bool armed: recorderUp && daemon.replay && daemon.replay.armed === true
   readonly property bool logPaused: recorderUp && daemon.paused === true
@@ -49,8 +58,43 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  onOpenedChanged: if (opened) load()
+  onOpenedChanged: if (opened) { load(); checkUpdates() }
   Component.onCompleted: ensureDaemon()
+
+  // ---- updates ----------------------------------------------------------------
+  FileView {
+    path: Qt.resolvedUrl("manifest.json").toString().replace(/^file:\/\//, "")
+    printErrors: false
+    onLoaded: {
+      try { root.version = String(JSON.parse(text()).version || "") } catch (e) { root.version = "" }
+      root.checkUpdates()
+    }
+  }
+  function checkUpdates() {
+    if (root.setting("update_check", true) === false || updateProc.running) return
+    updateProc.command = [root.cli, "update-check", root.version]
+    updateProc.running = true
+  }
+  Process {
+    id: updateProc
+    stdout: StdioCollector { id: updateOut; waitForEnd: true }
+    onExited: function(code) {
+      var d = null
+      try { d = JSON.parse(updateOut.text) } catch (e) { d = null }
+      if (d) { root.updateInfo = d; return }
+      // A helper older than this widget does not know update-check.
+      if (code !== 0) root.updateInfo = { mismatch: true, update_available: false, latest: null, notes: [], dismissed: "", cli: "older" }
+    }
+  }
+  Timer { interval: 6 * 3600 * 1000; running: true; repeat: true; onTriggered: root.checkUpdates() }
+  function runUpdate() {
+    root.updateHidden = true
+    Util.execArgv([root.cli, "update-run", root.updateAvailable ? "all" : "install"])
+  }
+  function dismissUpdate() {
+    root.updateHidden = true
+    if (root.updateAvailable && root.updateInfo.latest) Util.execArgv([root.cli, "update-dismiss", String(root.updateInfo.latest)])
+  }
 
   // ---- recorder -------------------------------------------------------------
   function ensureDaemon() { Util.execArgv([root.cli, "daemon", "ensure"]) }
@@ -149,9 +193,10 @@ Panel {
     text: "󰃤"
     slotSize: Style.bar.statusSlot
     fontSize: Style.font.caption
-    tooltipText: !root.recorderUp ? "Feedback · recorder starting…"
+    tooltipText: (!root.recorderUp ? "Feedback · recorder starting…"
       : (root.armed ? "Feedback · screen replay armed" : (root.logPaused ? "Feedback · event log paused" : "Feedback"))
-      + " — middle-click to report"
+      + " — middle-click to report")
+      + (root.updateAvailable ? " · " + root.updateInfo.latest + " is available" : (root.updateMismatch ? " · finish updating" : ""))
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.MiddleButton) root.capture("chip")
       else root.toggle()
@@ -164,7 +209,7 @@ Panel {
     anchors { right: parent.right; top: parent.top; margins: Style.space(3) }
   }
   Rectangle {
-    visible: !root.armed && root.newCount > 0
+    visible: !root.armed && (root.newCount > 0 || root.updatePending)
     width: Style.space(6); height: width; radius: width / 2
     color: Color.accent
     anchors { right: parent.right; top: parent.top; margins: Style.space(3) }
@@ -209,6 +254,62 @@ Panel {
               : (root.logPaused ? "Event log paused"
                  : ("Recording window focus and shortcuts, never typed text" + (root.daemon.locked ? " · paused while locked" : "")))
                 + (root.armed ? " · screen replay armed on " + root.daemon.replay.monitor + " for " + root.armedFor() : "")
+          }
+
+          // ---- update banner (docs/update-alerts.md) ----
+          Rectangle {
+            id: updateBanner
+            width: parent.width
+            visible: root.updatePending
+            height: visible ? updateRow.implicitHeight + Style.space(14) : 0
+            radius: Style.space(6)
+            color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.08)
+            border.width: 1
+            border.color: Color.accent
+            Row {
+              id: updateRow
+              width: parent.width - Style.space(14)
+              anchors.centerIn: parent
+              spacing: Style.space(8)
+              Column {
+                id: updateCol
+                width: parent.width - updateButtons.width - parent.spacing
+                spacing: Style.space(2)
+                Text {
+                  width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                  text: root.updateAvailable
+                        ? "Feedback " + root.updateInfo.latest + " is available (you have " + root.version + ")"
+                        : "Finish updating Feedback: the widget is " + root.version + ", its helper is " + (root.updateInfo ? root.updateInfo.cli : "")
+                  color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; font.bold: true
+                }
+                Repeater {
+                  model: root.updateAvailable ? root.updateInfo.notes.slice(0, 4) : []
+                  delegate: Text {
+                    required property var modelData
+                    width: updateCol.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                    text: "•  " + modelData
+                    color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                  }
+                }
+                Text {
+                  width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                  text: root.updateAvailable
+                        ? "Update opens a terminal: omarchy plugin update shows the changes and asks, then install.sh asks, then the recorder restarts."
+                        : "Run install.sh once so the helper matches. It asks before changing anything."
+                  color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                }
+              }
+              Column {
+                id: updateButtons
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(4)
+                Button {
+                  text: root.updateAvailable ? "Update…" : "Finish update…"; foreground: Color.accent; fontFamily: root.fontFamily
+                  onClicked: root.runUpdate()
+                }
+                Button { text: "Later"; foreground: root.dim; fontFamily: root.fontFamily; onClicked: root.dismissUpdate() }
+              }
+            }
           }
 
           Flow {

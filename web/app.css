@@ -91,6 +91,10 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 .swatch.on { border-color: var(--fg); }
 
 .handoffs li { font-size: 13px; color: var(--muted); }
+.saved { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.saved li { font-size: 13px; }
+.saved code { overflow-wrap: anywhere; user-select: all; }
+.saved .row { margin-top: 6px; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--bg0); border: 1px solid var(--accent);
   border-radius: var(--radius); padding: 8px 14px; max-width: calc(100% - 32px); }
 

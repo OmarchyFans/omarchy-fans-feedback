@@ -34,7 +34,8 @@ screenshots and logs never leave the machine unless you send them.
 - **Replay viewer.** A local web app plays the video in sync with the event timeline, or
   steps through the events over the screenshot. It follows your Omarchy theme and installs
   as a web app.
-- **Export.** Download any issue as a PDF or Markdown summary.
+- **Export.** Save any issue as a PDF or Markdown summary into your Downloads folder; the viewer
+  shows the full path with **Show in Files** and **Copy path**.
 - **Scriptable.** `omarchy-feedback capture --no-form ...` lets agents and scripts file
   issues too.
 - **Private by design.** The viewer listens on loopback only, and scripts and agents

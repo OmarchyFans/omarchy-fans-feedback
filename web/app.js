@@ -479,22 +479,41 @@ function handoffCard(i) {
     list);
 }
 
+// Saves on this machine (the daemon writes into Downloads) so the card can say where the file is
+// and open it in Files; a browser download would hide the location from the page.
 function exportCard(i) {
-  const download = async (kind) => {
-    try {
-      toast(kind === "pdf" ? "Rendering the PDF…" : "Preparing Markdown…", 10000);
-      const r = await api("/api/issues/" + i.id + "/export." + kind, { raw: true });
-      const blob = await r.blob();
-      const a = h("a", { href: URL.createObjectURL(blob), download: "feedback-" + i.id + "." + kind });
-      document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-      toast("Downloaded feedback-" + i.id + "." + kind);
-    } catch (e) { toast("Export failed: " + e.message); }
+  const saved = h("ul", { class: "saved" });
+  const show = (r) => {
+    const path = r.path;
+    const copy = h("button", { class: "btn", type: "button", text: "Copy path", onclick: async () => {
+      try { await navigator.clipboard.writeText(path); toast("Path copied."); } catch (e) { toast("Could not copy: " + e.message); }
+    } });
+    const reveal = h("button", { class: "btn primary", type: "button", text: "Show in Files", onclick: async () => {
+      try { await api("/api/issues/" + i.id + "/reveal", { method: "POST", body: { path } }); }
+      catch (e) { toast(e.message); }
+    } });
+    const li = h("li", {}, h("span", { class: "muted", text: "Saved to " }), h("code", { text: path }), h("div", { class: "row" }, reveal, copy));
+    const old = [...saved.children].find((x) => x.dataset.path === path);
+    li.dataset.path = path;
+    if (old) old.replaceWith(li); else saved.prepend(li);
   };
+  const save = async (fmt, btn) => {
+    btn.disabled = true;
+    try {
+      toast(fmt === "pdf" ? "Rendering the PDF…" : "Saving Markdown…", 10000);
+      const r = await api("/api/issues/" + i.id + "/save", { method: "POST", body: { format: fmt } });
+      show(r);
+      toast("Saved " + r.name + " in " + r.dir);
+    } catch (e) { toast("Export failed: " + e.message); }
+    finally { btn.disabled = false; }
+  };
+  const md = h("button", { class: "btn", type: "button", text: "Save Markdown" });
+  const pdf = h("button", { class: "btn", type: "button", text: "Save PDF" });
+  md.onclick = () => save("md", md);
+  pdf.onclick = () => save("pdf", pdf);
   return h("div", { class: "card" }, h("h2", { text: "Export" }),
-    h("div", { class: "row" },
-      h("button", { class: "btn", type: "button", text: "Download Markdown", onclick: () => download("md") }),
-      h("button", { class: "btn", type: "button", text: "Download PDF", onclick: () => download("pdf") })));
+    h("p", { class: "muted", text: "Saves into your Downloads folder and shows where, so you can open it from Files." }),
+    h("div", { class: "row" }, md, pdf), saved);
 }
 
 // ------------------------------------------------------------------ start --

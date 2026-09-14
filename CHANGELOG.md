@@ -3,6 +3,10 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.4.1
+
+- Save Markdown and Save PDF put the file in Downloads and show where, with Show in Files and Copy path
+
 ## 0.4.0
 
 - The popup tells you when a new version is out, shows what changed, and updates in one click

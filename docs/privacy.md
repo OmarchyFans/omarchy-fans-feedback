@@ -65,3 +65,8 @@ Other web pages in your browser cannot use it either: it checks the exact Host
 header, requires a per-machine key (stored 0600 in the state folder and passed to
 the viewer window in the part of the URL that is never sent over the network),
 refuses cross-site writes, and cannot delete issues or start agents.
+
+**Save Markdown** and **Save PDF** write `feedback-<id>-<title>.md|.pdf` into your Downloads
+folder (`xdg-user-dir DOWNLOAD`), replacing an earlier save of the same issue. **Show in Files**
+opens your file manager with that file selected; it only accepts a file this issue saved into
+Downloads, never any other path.

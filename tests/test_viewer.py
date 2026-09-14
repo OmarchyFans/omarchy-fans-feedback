@@ -237,6 +237,51 @@ class ViewerTests(unittest.TestCase):
         self.assertEqual(r.getheader("Content-Type"), "application/pdf")
         self.assertTrue(body.startswith(b"%PDF"))
 
+    def test_save_shows_location_and_reveals(self):
+        out = os.path.join(TMP, "downloads")
+        os.environ["OF_EXPORT_DIR"] = out
+        shown = []
+        real_reveal = of_viewer.reveal
+        of_viewer.reveal = lambda p: shown.append(p) or "file-manager"
+        stub = os.path.join(TMP, "fake-chromium-save")
+        with open(stub, "w") as f:
+            f.write("#!/bin/bash\nfor a; do case $a in --print-to-pdf=*) printf '%%PDF-1.4 fake' >\"${a#--print-to-pdf=}\";; esac; done\n")
+        os.chmod(stub, 0o755)
+        os.environ["OF_CHROMIUM"] = stub
+        try:
+            r, body = self.req("POST", "/api/issues/%d/save" % self.issue, {"format": "md"})
+            self.assertEqual(r.status, 200, body)
+            md = json.loads(body)
+            self.assertEqual(md["dir"], os.path.realpath(out))
+            self.assertEqual(md["name"], "feedback-%d-viewer-test.md" % self.issue)
+            with open(md["path"]) as f:
+                self.assertIn("# Viewer test", f.read())
+            r, body = self.req("POST", "/api/issues/%d/save" % self.issue, {"format": "pdf"})
+            self.assertEqual(r.status, 200, body)
+            pdf = json.loads(body)
+            with open(pdf["path"], "rb") as f:
+                self.assertTrue(f.read().startswith(b"%PDF"))
+            self.assertEqual([n for n in os.listdir(out) if n.endswith(".part")], [])
+            r, _ = self.req("POST", "/api/issues/%d/save" % self.issue, {"format": "exe"})
+            self.assertEqual(r.status, 400)
+
+            r, body = self.req("POST", "/api/issues/%d/reveal" % self.issue, {"path": md["path"]})
+            self.assertEqual(r.status, 200, body)
+            self.assertEqual(shown, [md["path"]])
+            other = make_issue(title="Other", with_replay=False)
+            for bad in ("/etc/passwd", os.path.join(out, "..", "state", "feedback.db"), md["path"] + ".x"):
+                r, _ = self.req("POST", "/api/issues/%d/reveal" % self.issue, {"path": bad})
+                self.assertEqual(r.status, 404, bad)
+            r, _ = self.req("POST", "/api/issues/%d/reveal" % other, {"path": md["path"]})
+            self.assertEqual(r.status, 404, "another issue's export must not be revealed")
+            r, _ = self.req("POST", "/api/issues/%d/reveal" % self.issue, {"path": md["path"]}, site="cross-site")
+            self.assertEqual(r.status, 403)
+            self.assertEqual(shown, [md["path"]])
+        finally:
+            of_viewer.reveal = real_reveal
+            os.environ.pop("OF_EXPORT_DIR", None)
+            os.environ.pop("OF_CHROMIUM", None)
+
     def test_handoff_request_only_records(self):
         r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "shell; rm -rf ~"})
         self.assertEqual(r.status, 400)

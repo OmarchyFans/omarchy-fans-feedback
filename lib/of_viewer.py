@@ -189,6 +189,74 @@ def render_pdf(issue_id, out):
     return out
 
 
+def export_dir():
+    """Where the viewer's Save buttons put files: the XDG Downloads folder (created if missing)."""
+    d = os.environ.get("OF_EXPORT_DIR", "")
+    if not d:
+        home = os.path.expanduser("~")
+        try:
+            d = subprocess.run(["xdg-user-dir", "DOWNLOAD"], capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            d = ""
+        # xdg-user-dir prints $HOME when no Downloads folder is configured.
+        if not d or not os.path.isabs(d) or os.path.realpath(d) == os.path.realpath(home):
+            d = os.path.join(home, "Downloads")
+    os.makedirs(d, exist_ok=True)
+    return os.path.realpath(d)
+
+
+def export_name(issue, fmt):
+    slug = re.sub(r"[^a-z0-9]+", "-", (issue.get("title") or "").lower()).strip("-")[:40].strip("-")
+    return "feedback-%d%s.%s" % (issue["id"], "-" + slug if slug else "", fmt)
+
+
+def save_export(issue_id, fmt):
+    """Write the Markdown or PDF summary into export_dir(); returns where it went."""
+    i = of_db.get_issue(issue_id)
+    d = export_dir()
+    name = export_name(i, fmt)
+    out = os.path.join(d, name)
+    tmp = os.path.join(d, ".%s.part" % name)
+    try:
+        if fmt == "md":
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(of_report.summary(issue_id, events_limit=80))
+        else:
+            render_pdf(issue_id, tmp)
+        os.replace(tmp, out)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return {"ok": True, "path": out, "dir": d, "name": name, "bytes": os.path.getsize(out)}
+
+
+def saved_export(issue_id, path):
+    """A path the page sends back is accepted only if it is this issue's export in export_dir()."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return None
+    real = os.path.realpath(path)
+    if (os.path.dirname(real) != export_dir() or not os.path.isfile(real)
+            or not re.fullmatch(r"feedback-%d(-[a-z0-9-]+)?\.(md|pdf)" % issue_id, os.path.basename(real))):
+        return None
+    return real
+
+
+def reveal(path):
+    """Show the file selected in the file manager (FileManager1 over D-Bus), else open its folder."""
+    uri = "file://" + urllib.parse.quote(path)
+    try:
+        p = subprocess.run(["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.FileManager1",
+                            "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems",
+                            "array:string:" + uri, "string:"], capture_output=True, timeout=10)
+        if p.returncode == 0:
+            return "file-manager"
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    subprocess.Popen(["xdg-open", os.path.dirname(path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    return "folder"
+
+
 # ---------------------------------------------------------------------- server --
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "omarchy-feedback"
@@ -295,13 +363,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = self.body_json()
         except (ValueError, UnicodeDecodeError) as e:
             return self.err(400, str(e))
-        m = re.fullmatch(r"/api/issues/(\d+)(/markup|/handoff)?", path)
+        m = re.fullmatch(r"/api/issues/(\d+)(/markup|/handoff|/save|/reveal)?", path)
         if not m:
             return self.err(404, "not found")
         issue_id, sub = int(m.group(1)), m.group(2)
         if not of_db.get_issue(issue_id):
             return self.err(404, "no such issue")
         try:
+            if verb == "POST" and sub == "/save":
+                if body.get("format") not in ("md", "pdf"):
+                    return self.err(400, "format must be md or pdf")
+                try:
+                    return self.send(200, save_export(issue_id, body["format"]))
+                except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+                    return self.err(500, str(e))
+            if verb == "POST" and sub == "/reveal":
+                p = saved_export(issue_id, body.get("path"))
+                if not p:
+                    return self.err(404, "that export is not in the Downloads folder any more; save it again")
+                return self.send(200, {"ok": True, "path": p, "shown": reveal(p)})
             if verb == "PATCH" and not sub:
                 for field in ("title", "kind", "status", "notes", "description"):
                     if field in body:

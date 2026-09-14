@@ -71,6 +71,10 @@ as possible.* The issue shows a red warning in the bar list and the viewer until
 rotated, and sending it to the author (a public issue) stays locked until then. Exports, agent
 briefs and the author page are redacted once more on the way out.
 
+Reading screenshots needs the `tesseract` and `tesseract-data-eng` packages. Without them text is
+still masked, the viewer says the images were not checked, and `omarchy-feedback secrets scan <id>`
+checks them once the packages are installed.
+
 Issues saved by an older version are scanned and cleaned when the recorder starts. OCR and
 patterns cannot catch everything (a password typed into an unlabelled field, text too small or
 blurred to read): look at your screenshots before sending them anywhere.

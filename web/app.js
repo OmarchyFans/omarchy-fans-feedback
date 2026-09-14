@@ -180,6 +180,12 @@ function secretsCard(i) {
   if (!i.scan && !all.length) {
     return h("div", { class: "card note" }, h("p", { class: "muted", text: "Checking the screenshots and replay for passwords, keys and account numbers…" }));
   }
+  const noOcr = i.scan && i.scan.ocr && i.scan.ocr !== "ok";
+  if (!all.length && noOcr) {
+    return h("div", { class: "card note" }, h("p", { class: "muted",
+      text: "Text was checked for passwords, keys and account numbers, but the screenshots and replay were not (" + i.scan.ocr +
+        "). Install the tesseract and tesseract-data-eng packages, then run: omarchy-feedback secrets scan " + i.id }));
+  }
   if (!all.length) return null;
   const open = openSecrets(i);
   const hasReplay = (i.attachments || []).some((a) => a.kind === "replay");

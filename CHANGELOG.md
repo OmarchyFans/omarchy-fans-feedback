@@ -3,6 +3,10 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.5.1
+
+- The viewer says when screenshots could not be checked for secrets (tesseract not installed)
+
 ## 0.5.0
 
 - Passwords, keys, tokens and account numbers are masked before anything is saved

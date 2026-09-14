@@ -92,7 +92,7 @@ case "$cmd" in
   snap)   cmd_snap "$@" ;;
   update-check)   exec bash "$OF_LIB/update.sh" check "$@" ;;
   update-dismiss) exec bash "$OF_LIB/update.sh" dismiss "$@" ;;
-  update-run)     exec bash "$OF_LIB/update.sh" run "$@" ;;
+  update-run)     exec env OMARCHY_PLUGIN_UPDATE_PRINT="${OMARCHY_PLUGIN_UPDATE_PRINT:-${OF_DRY_RUN:-0}}" bash "$OF_LIB/update.sh" run "$@" ;;
   help)   usage ;;
   *) fail "unknown command '$cmd' (try --help)" ;;
 esac

@@ -469,8 +469,11 @@ if want update; then
   rm "$XDG_CONFIG_HOME/omarchy-feedback/config.json"
   out=$(OMARCHY_PLUGIN_UPDATE_PRINT=1 "$B" update-run all); [[ $(j '.argv[0]' "$out") == *omarchy-launch-tui && $(j '.argv[-1]' "$out") == all ]] || tfail "update-run argv: $out"
   ! "$B" update-run bogus 2>/dev/null || tfail "update-run rejects unknown steps"
+  echo 'not json' >"$T/cache/omarchy-feedback/update-check.json"
+  "$B" update-dismiss 1.2.3 && [[ $("$B" update-check --force | jq -r .dismissed) == 1.2.3 ]] || tfail "a broken cache file is replaced, not kept"
+  out=$("$B" --dry-run update-run); [[ $(j '.argv[-1]' "$out") == all ]] || tfail "--dry-run prints the argv: $out"
   unset OMARCHY_PLUGIN_UPDATE_RAW
-  pass "check, notes, cache, offline, dismiss, opt-out, run"
+  pass "check, notes, cache, offline, dismiss, opt-out, run, broken cache, dry-run"
 fi
 
 echo "All tests passed."

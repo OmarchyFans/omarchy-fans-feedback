@@ -279,7 +279,9 @@ if want handoff; then
   t=$("$B" handoff targets "$i_test")
   [[ $(j .rix.available "$t") == false && $(j .rix.reason "$t") == *"not set up"* && $(j .agent.available "$t") == false \
      && $(j .author.kind "$t") == github ]] || tfail "targets when unavailable: $t"
+  : >"$OF_TEST_LOG"
   "$B" handoff rix "$i_test" >/dev/null 2>&1 && tfail "Rix hand-off must fail when Rix is not set up"
+  grep -q "notify .*Feedback #$i_test was not sent to Rix .*Rix is not set up" "$OF_TEST_LOG" || tfail "a failed hand-off must reach the desktop: $(grep notify "$OF_TEST_LOG")"
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_test" | jq -r '.handoffs[-1].status') == failed ]] || tfail "failed hand-off recorded"
   export OF_TEST_AGENT=claude
   printf '{"name":"rix","configured":true,"running":true,"model":"m","backend":"","provider":"local","default_backend":"local","workers":[]}\n' >"$T/rix.json"

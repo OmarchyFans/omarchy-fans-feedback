@@ -25,7 +25,7 @@ screenshots and logs never leave the machine unless you send them.
 - **Local issue list.** Click the bug to see new, triaged, sent and fixed issues, with
   status, notes and delete.
 - **Hand it off in one click:**
-  - **Rix**, the Chief of Staff in [Agent Launcher](https://github.com/OmarchyFans/omarchy-fans-agent-launcher),
+  - **Rix**, the Chief of Staff in [Singularix](https://github.com/OmarchyFans/Omarchy-Singularix),
     triages it as a worker job.
   - **Your coding agent** (Omarchy's default, e.g. Claude Code) opens in the project's
     folder with an issue brief that treats the report as untrusted input.

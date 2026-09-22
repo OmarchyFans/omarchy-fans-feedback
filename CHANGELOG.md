@@ -3,6 +3,10 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.5.2
+
+- Send to Rix works again after the Agent Launcher plugin was renamed to Singularix
+
 ## 0.5.1
 
 - The viewer says when screenshots could not be checked for secrets (tesseract not installed)

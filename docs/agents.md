@@ -5,7 +5,7 @@ the report as data, lists the subject and versions, gives the evidence as absolu
 paths (screenshots, markup, replay, event log), shows the last 60 events, and
 puts the reporter's own words inside `<untrusted-report>`.
 
-## Rix (Agent Launcher's Chief of Staff)
+## Rix (Singularix's Chief of Staff)
 
 ```
 omarchy-feedback handoff rix <id>
@@ -14,14 +14,14 @@ omarchy-feedback handoff rix <id>
 runs
 
 ```
-omarchy-agent-launcher delegate --backend <Rix's backend> --name feedback-<id>-<time> \
+<plugin>/bin/omarchy-agent-launcher delegate --backend <Rix's backend> --name feedback-<id>-<time> \
   --task-title "Feedback #<id>: <title>" --job-file ~/.local/state/omarchy-feedback/issues/<id>/FEEDBACK.md
 ```
 
-then opens the Agent Launcher dashboard on the Rix tab. Rix is recorded as the
+then opens the Singularix dashboard on the Rix tab. Rix is recorded as the
 worker's parent, so the job shows up in his tasks. The backend is the one Rix
-runs on (or Agent Launcher's default backend). The button is disabled with a
-reason when Agent Launcher is missing or Rix is not set up
+runs on (or its default backend). The button is disabled with a
+reason when Singularix is missing or Rix is not set up
 (`omarchy-agent-launcher rix setup`). Read the result with the command stored on
 the hand-off (`omarchy-agent-launcher result feedback-…`), shown in the viewer.
 
@@ -62,7 +62,7 @@ Agents can file issues too, for example after a failed run:
 
 ```
 omarchy-feedback capture --no-form --title "Build fails after update" --kind bug \
-  --subject plugin:fans.omarchy.agent-launcher --description "…"
+  --subject plugin:fans.omarchy.singularix --description "…"
 omarchy-feedback list --json
 omarchy-feedback show <id> --json
 omarchy-feedback set <id> notes "Root cause: …"

@@ -11,14 +11,30 @@
 # Every agent gets FEEDBACK.md (lib/of_report.py feedback): the reporter's words
 # wrapped as untrusted input, the evidence as absolute paths.
 
-OAL_PLUGIN_BIN="$OF_PLUGINS/fans.omarchy.agent-launcher/bin/omarchy-agent-launcher"
 OF_WORK_DIR="${OF_WORK_DIR:-$HOME/Work}"
+# The plugin that hosts Rix has been renamed before (Agent Launcher -> Singularix), so find the
+# command inside whichever installed plugin ships it rather than hard-coding one plugin id. The
+# ids below are tried first, then any other plugin; a system-wide install is the last resort.
+# The caller's PATH is never searched: it may contain a file anyone can write.
+OAL_IDS=(fans.omarchy.singularix fans.omarchy.agent-launcher)
+OAL_BIN=""; OAL_ID=""
 
-oal() { # Agent Launcher by its installed plugin path, or a system-wide install; never ~/.local/bin
-  if [[ -f $OAL_PLUGIN_BIN && -x $OAL_PLUGIN_BIN ]]; then "$OAL_PLUGIN_BIN" "$@"
-  elif have omarchy-agent-launcher; then omarchy-agent-launcher "$@"
-  else return 127; fi
+oal_resolve() { # sets OAL_BIN and OAL_ID; 127 when no launcher is installed
+  [[ -n $OAL_BIN ]] && return 0
+  local id d
+  for id in "${OAL_IDS[@]}"; do
+    [[ -x $OF_PLUGINS/$id/bin/omarchy-agent-launcher ]] || continue
+    OAL_BIN="$OF_PLUGINS/$id/bin/omarchy-agent-launcher"; OAL_ID=$id; return 0
+  done
+  for d in "$OF_PLUGINS"/*/; do
+    [[ -x ${d}bin/omarchy-agent-launcher ]] || continue
+    OAL_BIN="${d}bin/omarchy-agent-launcher"; OAL_ID=$(basename "${d%/}"); return 0
+  done
+  if have omarchy-agent-launcher; then OAL_BIN=$(command -v omarchy-agent-launcher); OAL_ID=${OAL_IDS[0]}; return 0; fi
+  return 127
 }
+
+oal() { oal_resolve || return 127; "$OAL_BIN" "$@"; }
 
 issue_json() { py of_db.py get "$1" 2>/dev/null; }
 
@@ -34,7 +50,7 @@ write_feedback_md() { # write_feedback_md <id> -> prints the path
 rix_target_json() {
   local st
   if ! st=$(oal rix status 2>/dev/null) || [[ -z $st ]]; then
-    jq -cn '{available:false, reason:"Agent Launcher is not installed"}'; return
+    jq -cn '{available:false, reason:"Singularix (Agent Launcher), which hosts Rix, is not installed"}'; return
   fi
   jq -c '{available:(.configured == true and ((.backend // "") != "" or (.default_backend // "") != "")),
           reason:(if .configured != true then "Rix is not set up (omarchy-agent-launcher rix setup)"
@@ -121,7 +137,8 @@ handoff_rix() { # handoff_rix <id> <handoff-id> -> prints result ref
   local ref; ref=$(grep '^{' <<<"$out" | tail -n1 | jq -r '.result // empty' 2>/dev/null)
   py of_db.py handoff-set "$hid" launched "${ref:-omarchy-agent-launcher result $name}" >/dev/null
   OF_BY=handoff py of_db.py set "$id" status sent-to-rix >/dev/null
-  have omarchy-shell && omarchy-shell shell summon fans.omarchy.agent-launcher '{"tab":"rix"}' >/dev/null 2>&1 || true
+  oal_resolve || true
+  have omarchy-shell && omarchy-shell shell summon "${OAL_ID:-fans.omarchy.singularix}" '{"tab":"rix"}' >/dev/null 2>&1 || true
   say "Sent #$id to Rix as worker '$name' on $b."
 }
 

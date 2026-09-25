@@ -5,6 +5,8 @@ into a fix.** One keypress captures a screenshot and what led up to it. Feedback
 local issue list and hands it to Rix, your coding agent or the project's author. Your
 screenshots and logs never leave the machine unless you send them.
 
+![The Feedback viewer: an issue's screenshot with the reporter's markup, replayed step by step beside the events that led up to it](preview.png)
+
 ## Features
 
 - **Report from anywhere.** Press SUPER + ALT + B (or middle-click the 󰃤 bug) over any
@@ -20,6 +22,9 @@ screenshots and logs never leave the machine unless you send them.
   or on a monitor change.
 - **Mark it up.** Draw arrows, boxes and notes on the screenshot in Tensaku right away, or
   later in the viewer.
+
+  ![Marking up a captured screenshot: pen, arrow, box and text in six colours](docs/img/markup.png)
+
 - **Knows what it's about.** Feedback guesses whether the report concerns a plugin, an app or
   Omarchy, and fills in its version, project link and author.
 - **Local issue list.** Click the bug to see new, triaged, sent and fixed issues, with

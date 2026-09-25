@@ -3,6 +3,10 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.5.4
+
+- Screenshots in the README and on the marketplace listing; a clearer listing description
+
 ## 0.5.3
 
 - A hand-off that fails now says so on the desktop instead of writing to a terminal you cannot see

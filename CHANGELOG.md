@@ -3,6 +3,13 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.7.0
+
+- Pop out: the issue list opens in a normal window that stays open and tiles with your other windows
+- `omarchy-feedback window` opens, closes or toggles that window
+- A report started from the window hides it for the screenshot and brings it back afterwards
+- The row buttons say what they do: Mark fixed and Close issue (a plain "Fixed" looked like a status)
+
 ## 0.6.0
 
 - Send to your coding agent and Send to Rix work again: what they launch gets your session's PATH

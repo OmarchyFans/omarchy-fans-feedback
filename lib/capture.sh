@@ -2,7 +2,7 @@
 # Capturing an issue. Order matters: nothing of ours appears on screen until
 # the screenshot is taken.
 #
-#   capture [--source key|chip|panel|cli] [--minutes N]
+#   capture [--source key|chip|panel|window|cli] [--minutes N]
 #           [--no-form --title T [--kind bug|feature] [--subject auto|omarchy|app|plugin:<id>] [--description D]]
 #           [--no-annotate]
 #   capture-form <pending-dir>     (runs in a floating terminal: annotate, then the form)
@@ -14,6 +14,15 @@ wait_panel_closed() { # the issue list's "Report an issue" button closes the pan
     sleep 0.075
   done
   sleep 0.15   # let the close animation finish
+}
+
+wait_window_closed() { # the Feedback window hides itself before a report; wait until it is unmapped
+  local i
+  for ((i = 0; i < 30; i++)); do
+    hyprctl -j clients 2>/dev/null | jq -e 'map(select(.class == "org.quickshell" and .title == "Feedback")) | length == 0' >/dev/null && break
+    sleep 0.075
+  done
+  sleep 0.2    # and until focus has moved back to what the report is about
 }
 
 env_json() {
@@ -52,6 +61,7 @@ cmd_capture() {
   ensure_state
   cmd_daemon ensure >/dev/null 2>&1 || warn "event recorder is not running; the report will have no event log"
   [[ $source == panel ]] && wait_panel_closed
+  [[ $source == window ]] && wait_window_closed
 
   local t P mon
   t=$(now_ms)
@@ -136,6 +146,22 @@ capture_wait_replay() {
   [[ -s $P/replay.mp4 ]] || warn "the replay could not be saved: $(jq -r '.error // empty' "$P/replay.json" 2>/dev/null)"
 }
 
+# A report started from the Feedback window hid the window for the screenshot; show it again.
+reopen_window_for() { # reopen_window_for <meta.json>
+  [[ $(jq -r '.source // ""' "$1" 2>/dev/null) == window ]] || return 0
+  have omarchy-shell && omarchy-shell shell summon fans.omarchy.feedback '{}' >/dev/null 2>&1 || true
+}
+
+cmd_window() { # window [open|close|toggle]: the issue list as a normal, tiled window
+  have omarchy-shell || fail "omarchy-shell not found"
+  case "${1:-toggle}" in
+    open) omarchy-shell shell summon fans.omarchy.feedback '{}' >/dev/null ;;
+    close) omarchy-shell shell hide fans.omarchy.feedback >/dev/null ;;
+    toggle) omarchy-shell shell toggle fans.omarchy.feedback '{}' >/dev/null ;;
+    *) fail "window [open|close|toggle]" ;;
+  esac
+}
+
 capture_finish() { # capture_finish <P>: into the database, summary, notification
   local P=$1 out id title
   capture_wait_replay "$P"
@@ -147,6 +173,7 @@ capture_finish() { # capture_finish <P>: into the database, summary, notificatio
   # Look for secrets the text rules cannot see (screenshots, the replay) and warn about any found.
   if [[ ${OF_SCAN_SYNC:-0} == 1 ]]; then py of_secrets.py scan "$id" >/dev/null || true
   else setsid -f nice -n 19 env PYTHONDONTWRITEBYTECODE=1 python3 "$OF_LIB/of_secrets.py" scan "$id" >/dev/null 2>&1 </dev/null; fi
+  reopen_window_for "$OF_ISSUES/$id/meta.json"
   if (( JSON )); then jq -c . <<<"$out"; else say "Saved issue #$id: $title"; fi
 }
 
@@ -196,6 +223,7 @@ capture_cancelled() {
   local P=$1
   if ui_confirm "Discard this capture?"; then
     capture_wait_replay "$P" >/dev/null 2>&1
+    reopen_window_for "$P/meta.json"
     rm -rf "$P"; say "Discarded."
   else
     capture_untitled "$P"

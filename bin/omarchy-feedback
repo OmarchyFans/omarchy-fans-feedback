@@ -16,6 +16,7 @@
 #                                            secrets captured with an issue (masked only), marking them rotated
 #   omarchy-feedback delete-replay <id>      remove an issue's screen replay
 #   omarchy-feedback open [id]               the web viewer: replay, timeline, markup, export
+#   omarchy-feedback window [open|close|toggle]   the issue list as a normal window that tiles
 #   omarchy-feedback export <id> [--md|--pdf] [--out FILE]
 #
 # Hand-offs:
@@ -89,6 +90,7 @@ case "$cmd" in
   set)    cmd_set "$@" ;;
   secrets) cmd_secrets "$@" ;;
   get-singularix) cmd_get_singularix "$@" ;;
+  window) cmd_window "$@" ;;
   delete-replay) cmd_delete_replay "$@" ;;
   delete) cmd_delete "$@" ;;
   handoff) cmd_handoff "$@" ;;

@@ -28,7 +28,8 @@ screenshots and logs never leave the machine unless you send them.
 - **Knows what it's about.** Feedback guesses whether the report concerns a plugin, an app or
   Omarchy, and fills in its version, project link and author.
 - **Local issue list.** Click the bug to see new, triaged, sent and fixed issues, with
-  status, notes and delete.
+  status, notes and delete. **Pop out** moves the list into a normal window that stays open and
+  tiles with your other windows (`omarchy-feedback window` opens it from a key or a terminal).
 - **Hand it off in one click:**
   - **Rix**, the Chief of Staff in [Singularix](https://github.com/OmarchyFans/Omarchy-Singularix),
     triages it as a worker job.
@@ -112,6 +113,7 @@ omarchy-feedback show <id> [--json]
 omarchy-feedback set <id> status|notes|title|description|kind <value>
 omarchy-feedback handoff rix|agent|author <id>
 omarchy-feedback open [id]
+omarchy-feedback window [open|close|toggle]
 omarchy-feedback export <id> --md|--pdf [--out FILE]
 omarchy-feedback arm [seconds] | disarm | pause | resume
 omarchy-feedback daemon ensure|status|stop|restart

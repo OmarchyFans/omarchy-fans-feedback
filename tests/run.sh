@@ -206,6 +206,21 @@ if want capture; then
   [[ -z $(ls "$OF_STATE/replays" 2>/dev/null) ]] || tfail "saved replay must move into the issue folder"
   pass "scripted capture: screenshot, crop, events, replay, db row, summary"
 
+  # The issue list as a window: the CLI drives the shell's panel, and a report started from
+  # the window brings the window back once it is saved (it hid itself for the screenshot).
+  : >"$OF_TEST_LOG"
+  "$B" window >/dev/null && grep -q "^omarchy-shell shell toggle fans.omarchy.feedback {}" "$OF_TEST_LOG" || tfail "window toggles the panel: $(cat "$OF_TEST_LOG")"
+  "$B" window open >/dev/null && grep -q "^omarchy-shell shell summon fans.omarchy.feedback {}" "$OF_TEST_LOG" || tfail "window open"
+  "$B" window close >/dev/null && grep -q "^omarchy-shell shell hide fans.omarchy.feedback" "$OF_TEST_LOG" || tfail "window close"
+  : >"$OF_TEST_LOG"
+  w1=$("$B" capture --source window --no-form --no-annotate --json --title "From the window" --subject omarchy | jq -r .id) || tfail "capture from the window"
+  grep -q "^omarchy-shell shell summon fans.omarchy.feedback {}" "$OF_TEST_LOG" || tfail "the window must come back after a report taken from it"
+  : >"$OF_TEST_LOG"
+  w2=$("$B" capture --source cli --no-form --no-annotate --json --title "From the CLI" --subject omarchy | jq -r .id) || tfail "capture from the CLI"
+  grep -q "omarchy-shell shell summon fans.omarchy.feedback" "$OF_TEST_LOG" && tfail "a report not started from the window must not open it"
+  "$B" delete "$w1" >/dev/null && "$B" delete "$w2" >/dev/null || tfail "clean up the window test issues"
+  pass "the issue list opens as a window; a report started from it brings it back"
+
   : >"$OF_TEST_LOG"
   printf '%s\n' "App: bash 5.3.9-1 — ~/Work" feature "Add a dark mode" "It is too bright at night." >"$OF_ANSWERS"
   out=$(OF_POPUP=1 "$B" capture --json --source chip) || tfail "form capture: $out"
@@ -567,7 +582,8 @@ fi
 echo "== tree: no symlinks, no __pycache__, manifest"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -type l -print) ]] || tfail "symlink in tree"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -name __pycache__ -print) ]] || tfail "__pycache__ created in the tree"
-jq -e '.id=="fans.omarchy.feedback" and .entryPoints.barWidget=="Panel.qml"' "$ROOT/manifest.json" >/dev/null || tfail manifest
+jq -e '.id=="fans.omarchy.feedback" and .entryPoints.barWidget=="Panel.qml" and .entryPoints.panel=="Window.qml" and (.kinds | index("panel")) and (.keepLoaded | not)' "$ROOT/manifest.json" >/dev/null || tfail manifest
+for f in Panel.qml IssueList.qml Window.qml; do [[ -f $ROOT/$f ]] || tfail "missing $f"; done
 pass "tree"
 
 echo "== trusted PATH: shadow executables and foreign stub folders are ignored"

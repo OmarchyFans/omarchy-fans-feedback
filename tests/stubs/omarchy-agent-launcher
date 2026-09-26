@@ -1,7 +1,16 @@
 #!/bin/bash
 # Agent Launcher stub: `rix status` from $OF_TEST_DIR/rix.json (absent = not set up),
 # `delegate` logs its argv and the job file, prints the launcher's JSON line.
+# `result` prints a live worker's first output, or with OF_OAL_DEAD the one line a worker
+# leaves when its runtime is missing; `stop` just logs.
 printf 'omarchy-agent-launcher %s\n' "$*" >>"${OF_TEST_LOG:-/dev/null}"
+printf 'OAL_PATH %s\n' "$PATH" >>"${OF_TEST_LOG:-/dev/null}"
+case "$1" in
+  result) echo "# ${2:-} · 20260926-120000"
+          if [[ -n ${OF_OAL_DEAD:-} ]]; then echo "env: ‘hermes’: No such file or directory"; else echo "Reading FEEDBACK.md"; fi
+          exit 0 ;;
+  stop) exit 0 ;;
+esac
 case "$1 ${2:-}" in
   "rix status")
     if [[ -f $OF_TEST_DIR/rix.json ]]; then cat "$OF_TEST_DIR/rix.json"

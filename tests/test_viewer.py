@@ -310,6 +310,20 @@ class ViewerTests(unittest.TestCase):
         finally:
             os.environ.pop("OF_SCAN_SYNC", None)
 
+    def test_handoff_targets_offer_singularix(self):
+        os.environ["OF_OAL_SYSTEM"] = "0"
+        try:
+            r, body = self.req("GET", "/api/handoff-targets")
+        finally:
+            os.environ.pop("OF_OAL_SYSTEM", None)
+        self.assertEqual(r.status, 200, body[:300])
+        t = json.loads(body)
+        self.assertFalse(t["rix"]["available"])
+        self.assertEqual(t["rix"]["install"]["repo"], "https://github.com/OmarchyFans/Omarchy-Singularix")
+        self.assertIn("fans.omarchy.singularix", t["rix"]["install"]["marketplace"])
+        r, _ = self.req("GET", "/api/handoff-targets", token=False)
+        self.assertEqual(r.status, 401)
+
     def test_handoff_request_only_records(self):
         r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "shell; rm -rf ~"})
         self.assertEqual(r.status, 400)

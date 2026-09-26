@@ -44,6 +44,14 @@ anything, so nothing in a user-writable folder such as `~/.local/bin` can stand 
 Launcher is called by its installed plugin path. `tests/run.sh` checks that a shadow `jq`/`python3`
 earlier in `PATH` is ignored.
 
+**Hand-off environment (0.6.0):** what a hand-off starts on the user's click (their coding agent in
+a terminal, Rix's launcher) gets the desktop session's PATH (the environment of the bar panel or
+keybinding that started it, the same one Omarchy's own agent key gives `omarchy-agent`), because the user's agent CLIs
+live in mise shims or `~/.local/bin`. The program Feedback starts is resolved under the pinned PATH
+and invoked by absolute path (`env PATH=<session> /usr/share/omarchy/bin/omarchy-launch-tui …`,
+`<plugin>/bin/omarchy-agent-launcher`); Feedback's own tools never use the session PATH. Tests
+assert the PATH each launched program receives.
+
 **Secret handling:** text that looks like a password, key, token or account number is masked
 before it is stored (window titles, form fields, notes, markup notes); saved screenshots are read
 with the locally installed `tesseract` and matching regions painted black with `ffmpeg`; findings

@@ -23,6 +23,7 @@
 #   omarchy-feedback handoff agent <id>      your default coding agent opens in the project folder
 #   omarchy-feedback handoff author <id>     a prefilled issue on the project's GitHub (you review and submit)
 #   omarchy-feedback handoff request <target> <id> | confirm <n> | decline <n> | targets [id] | pending
+#   omarchy-feedback get-singularix [repo|marketplace|copy]   where to get Rix (Singularix) and why
 #
 # Recorder (always on while you are logged in, pauses while the screen is locked):
 #   omarchy-feedback arm [seconds] | disarm  screen replay buffer (RAM only, auto-off after 30 min)
@@ -43,7 +44,10 @@ set -uo pipefail
 # file in a user-writable folder such as ~/.local/bin cannot stand in for hyprctl,
 # python3 or grim. The daemon and every helper inherit this PATH. The test suite may
 # put the plugin's own tests/stubs (and nothing else) in front.
-OF_USER_PATH=${PATH:-}   # only to check that the user's coding agent exists; never used to run anything
+# The caller's PATH is kept only for what Feedback *hands off to*: a coding agent or Rix's
+# launcher gets the same environment Omarchy's own SUPER + ALT + A agent key gives it
+# (mise shims, ~/.local/bin). Feedback itself still runs nothing from it; see session_path.
+OF_USER_PATH=${PATH:-}
 PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin
 export PATH
 OF_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
@@ -84,6 +88,7 @@ case "$cmd" in
   show)   cmd_show "$@" ;;
   set)    cmd_set "$@" ;;
   secrets) cmd_secrets "$@" ;;
+  get-singularix) cmd_get_singularix "$@" ;;
   delete-replay) cmd_delete_replay "$@" ;;
   delete) cmd_delete "$@" ;;
   handoff) cmd_handoff "$@" ;;

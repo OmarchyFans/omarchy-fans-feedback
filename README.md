@@ -32,6 +32,8 @@ screenshots and logs never leave the machine unless you send them.
 - **Hand it off in one click:**
   - **Rix**, the Chief of Staff in [Singularix](https://github.com/OmarchyFans/Omarchy-Singularix),
     triages it as a worker job.
+    No Singularix yet? The Rix button shows what it does, with its GitHub page, its marketplace page
+    and the install command.
   - **Your coding agent** (Omarchy's default, e.g. Claude Code) opens in the project's
     folder with an issue brief that treats the report as untrusted input.
   - **The author** gets a prefilled issue on the project's repository that you review

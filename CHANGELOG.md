@@ -3,6 +3,12 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.6.0
+
+- Send to your coding agent and Send to Rix work again: what they launch gets your session's PATH
+- A Rix worker that dies on start is stopped and reported instead of showing as running
+- No Singularix? The Rix button shows what Rix does, with its GitHub and marketplace pages and the install command
+
 ## 0.5.4
 
 - Screenshots in the README and on the marketplace listing; a clearer listing description

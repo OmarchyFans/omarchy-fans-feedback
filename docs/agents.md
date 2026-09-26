@@ -20,10 +20,25 @@ runs
 
 then opens the Singularix dashboard on the Rix tab. Rix is recorded as the
 worker's parent, so the job shows up in his tasks. The backend is the one Rix
-runs on (or its default backend). The button is disabled with a
-reason when Singularix is missing or Rix is not set up
+runs on (or its default backend). When Singularix is missing, the Rix button
+(in the bar panel and the viewer) shows what Rix and Singularix do, with the
+GitHub repository, the marketplace page and a Copy install command
+(`omarchy-feedback get-singularix` prints the same). When Rix is not set up
 (`omarchy-agent-launcher rix setup`). Read the result with the command stored on
 the hand-off (`omarchy-agent-launcher result feedback-…`), shown in the viewer.
+
+Right after the hand-off Feedback reads the worker's first output. A worker that
+cannot start (its runtime is missing, say) is stopped and reported as a failed
+hand-off, instead of sitting in Singularix as "running".
+
+### What the launched programs see
+
+Feedback runs its own tools with a PATH limited to root-owned folders. What a
+hand-off starts for you (your coding agent, Rix's launcher and its workers) gets
+your desktop session's PATH instead, the same one Omarchy's own agent key uses,
+so tools installed with mise or into `~/.local/bin` are found. The program
+Feedback starts is still resolved by absolute path; `--dry-run` prints the PATH
+the child will get.
 
 ## Your coding agent
 

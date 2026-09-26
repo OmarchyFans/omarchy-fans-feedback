@@ -18,6 +18,7 @@ export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_STATE_HOME="$T/state" XDG_
 export XDG_RUNTIME_DIR="$T/xdg-run" OF_RUNTIME="$T/run" OF_STATE="$T/state/omarchy-feedback" OF_HYPR_DIR="$T/hypr"
 export OF_UI_STUBS="$ROOT/tests/ui-stubs.sh" OF_ANSWERS="$T/answers" OF_ASKED="$T/asked" OF_TEST_LOG="$T/log" OF_TEST_DIR="$T"
 export OF_TICK=0.2 OF_HYPR_WAIT=5 PYTHONDONTWRITEBYTECODE=1 OF_VIEWER_HOST=127.0.0.1 OF_VIEWER_PORT=0
+export OF_SESSION_PATH=""   # hermetic: never ask the real session's systemd for its PATH
 export OF_SCAN_ON_START=0 OF_SCAN_SYNC=1   # the secret scan runs in the foreground so tests can check its result
 export PATH="$ROOT/tests/stubs:$PATH" OF_TEST_STUBS="$ROOT/tests/stubs" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_RUNTIME_DIR"
@@ -83,6 +84,9 @@ if want daemon; then
   [[ $(stat -c %a "$OF_RUNTIME") == 700 && $(stat -c %a "$OF_RUNTIME/keys.raw") == 600 && $(stat -c %a "$OF_RUNTIME/ctl.sock") == 600 ]] \
     || tfail "runtime permissions"
   [[ -s $OF_RUNTIME/status.json ]] || tfail "status.json heartbeat"
+  dpid=$(pgrep -f "^python3 $ROOT/lib/feedbackd.py" | head -1)
+  tr '\0' '\n' <"/proc/$dpid/environ" | grep -q "^OF_SESSION_PATH=.*$ROOT/tests/stubs" \
+    || tfail "the daemon must carry the session PATH for the viewer's hand-offs"
 
   hypr_emit "activewindow>>org.omarchy.agent,Rix · chat" "openlayer>>omarchy-menu" "mouse>>ignored"
   wait_for 5 seg_has '"class":"org.omarchy.agent"' || tfail "window event not logged"
@@ -297,7 +301,9 @@ if want handoff; then
     out=$("$B" handoff "$tg" "$iss" --dry-run --json) || tfail "dry-run $tg failed: $out"
     [[ $(j .dryRun "$out") == true && $(j .target "$out") == "$tg" ]] || tfail "dry-run $tg output: $out"
   done
-  [[ $(j '.argv[0]' "$("$B" handoff agent "$i_clone" --dry-run --json)") == omarchy-launch-tui ]] || tfail "dry-run agent argv"
+  dr=$("$B" handoff agent "$i_clone" --dry-run --json)
+  [[ $(j '.argv[0]' "$dr") == env && $(j '.argv[2]' "$dr") == /* && $(j '.argv[2]' "$dr") == */omarchy-launch-tui ]] || tfail "dry-run agent argv: $dr"
+  [[ -n $(j .childPath "$dr") ]] || tfail "dry-run must show the PATH the agent gets: $dr"
   grep -E 'delegate|launch-tui|xdg-open' "$OF_TEST_LOG" && tfail "dry-run started something"
   [[ ! -e $OF_WORK_DIR/bare-plugin && ! -e $OF_WORK_DIR/tries/feedback-$i_clone ]] || tfail "dry-run cloned or created a folder"
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq '.handoffs | length') == "$rows" && \
@@ -359,6 +365,39 @@ if want handoff; then
   OF_TUI_FAIL=1 "$B" handoff agent "$i_app" >/dev/null 2>&1 && tfail "a terminal that fails at once must fail the hand-off"
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_app" | jq -r '.handoffs[-1].status') == failed ]] || tfail "failed terminal recorded"
   pass "coding agent: local checkout, ~/Work match, clone, scratch folder; never the plugins folder; does not block"
+
+  # The regression behind "could not open the agent terminal" and the dead Rix worker: what a
+  # hand-off launches must get the user's PATH (mise shims, ~/.local/bin), not Feedback's pinned
+  # one. Feedback's own lookups stay pinned: the launcher is still called by absolute path.
+  : >"$OF_TEST_LOG"
+  PATH="$T/mise-bin:$PATH" OF_TEST_AGENT=myagent "$B" handoff agent "$i_app" >/dev/null || tfail "agent hand-off with a user-PATH agent"
+  grep "^TUI_PATH " "$OF_TEST_LOG" | grep -q "$T/mise-bin" || tfail "the agent terminal must get the user's PATH: $(grep '^TUI_PATH' "$OF_TEST_LOG")"
+  [[ ! -e $T/agent-ran ]] || tfail "Feedback itself must not run the agent binary"
+  : >"$OF_TEST_LOG"
+  PATH="$T/mise-bin:$PATH" "$B" handoff rix "$i_app" >/dev/null || tfail "Rix hand-off with a user PATH"
+  grep "^OAL_PATH " "$OF_TEST_LOG" | grep -q "$T/mise-bin" || tfail "Rix's launcher must get the user's PATH: $(grep '^OAL_PATH' "$OF_TEST_LOG")"
+  t=$(OF_SESSION_PATH="$T/mise-bin" OF_TEST_AGENT=myagent "$B" handoff targets --json)
+  [[ $(j .agent.available "$t") == true ]] || tfail "a caller with a pinned PATH (the viewer, the daemon) must still find the agent via the session: $t"
+  pass "launched agents and Rix's workers get the user's PATH; Feedback's own tools stay pinned"
+
+  : >"$OF_TEST_LOG"
+  OF_OAL_DEAD=1 "$B" handoff rix "$i_app" >/dev/null 2>&1 && tfail "a worker that dies on start must fail the hand-off"
+  grep -q "^omarchy-agent-launcher stop feedback-$i_app-" "$OF_TEST_LOG" || tfail "the dead worker must be stopped: $(cat "$OF_TEST_LOG")"
+  grep -q "notify .*was not sent to Rix .*stopped at once: env: ‘hermes’: No such file or directory" "$OF_TEST_LOG" || tfail "dead worker reported: $(grep notify "$OF_TEST_LOG")"
+  [[ $(python3 "$ROOT/lib/of_db.py" get "$i_app" | jq -r '.handoffs[-1].status') == failed ]] || tfail "dead worker recorded as failed"
+  pass "a Rix worker that dies on start is stopped, recorded as failed and reported"
+
+  : >"$OF_TEST_LOG"
+  t=$(OF_OAL_SYSTEM=0 OF_PLUGINS_DIR="$T/empty-plugins" "$B" handoff targets --json)
+  [[ $(j .rix.available "$t") == false && $(j .rix.install.repo "$t") == https://github.com/OmarchyFans/Omarchy-Singularix \
+     && $(j .rix.install.marketplace "$t") == "https://plugins.omarchy.org/plugin.html?id=fans.omarchy.singularix" \
+     && $(j '.rix.install.bullets | length' "$t") -ge 3 && $(j .rix.install.command "$t") == "omarchy plugin add "* ]] || tfail "install card when Singularix is missing: $t"
+  OF_OAL_SYSTEM=0 OF_PLUGINS_DIR="$T/empty-plugins" "$B" handoff rix "$i_app" >/dev/null 2>&1 && tfail "Rix hand-off without Singularix must fail"
+  grep -q "notify .*Rix needs Singularix .*--exec .* get-singularix repo" "$OF_TEST_LOG" || tfail "missing-Singularix notification: $(grep notify "$OF_TEST_LOG")"
+  "$B" get-singularix repo && sleep 0.3 && grep -q "^xdg-open https://github.com/OmarchyFans/Omarchy-Singularix" "$OF_TEST_LOG" || tfail "get-singularix repo: $(cat "$OF_TEST_LOG")"
+  "$B" get-singularix copy >/dev/null && grep -q "^wl-copy" "$OF_TEST_LOG" || tfail "get-singularix copy"
+  "$B" get-singularix | grep -q "Install:     omarchy plugin add https://github.com/OmarchyFans/Omarchy-Singularix" || tfail "get-singularix pitch"
+  pass "without Singularix, Rix points at its GitHub repo, marketplace page and install command"
 
   : >"$OF_TEST_LOG"
   "$B" handoff author "$i_test" >/dev/null || tfail "author hand-off (GitHub)"

@@ -33,6 +33,7 @@ Panel {
 
   property var issues: []
   property var targets: null
+  property bool showGetRix: false   // the "Get Rix" card: Singularix is not installed
   property var pending: []
   property string filter: "open"
   property bool loading: false
@@ -165,6 +166,8 @@ Panel {
   function available(target) {
     return root.targets && root.targets[target] && root.targets[target].available === true
   }
+  // What to show instead of a dead Rix button: where to get Singularix, and why (from the CLI).
+  readonly property var rixInstall: root.targets && root.targets.rix && root.targets.rix.install ? root.targets.rix.install : null
   function reason(target) {
     return root.targets && root.targets[target] ? (root.targets[target].reason || "") : "checking…"
   }
@@ -345,6 +348,48 @@ Panel {
             }
           }
 
+          // Rix lives in Singularix; when it is missing, the Rix button opens this instead.
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
+            visible: root.showGetRix && root.rixInstall !== null
+            PanelSeparator { width: parent.width }
+            Row {
+              width: parent.width
+              PanelSectionHeader { width: parent.width - hideGetRix.width; text: root.rixInstall ? root.rixInstall.headline : "" }
+              Button { id: hideGetRix; text: "Hide"; foreground: root.dim; fontFamily: root.fontFamily
+                       onClicked: root.showGetRix = false }
+            }
+            Text {
+              width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
+              color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body
+              text: root.rixInstall ? root.rixInstall.lead : ""
+            }
+            Repeater {
+              model: root.rixInstall ? root.rixInstall.bullets : []
+              delegate: Text {
+                required property var modelData
+                width: column.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
+                color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                text: "•  " + modelData
+              }
+            }
+            Flow {
+              width: parent.width
+              spacing: Style.space(4)
+              // Every action goes through the plugin's own CLI (fixed argv), never a bare command.
+              Button { text: "GitHub"; iconText: "󰊤"; foreground: Color.accent; fontFamily: root.fontFamily
+                       tooltipText: root.rixInstall ? root.rixInstall.repo : ""
+                       onClicked: { root.close(); Util.execArgv([root.cli, "get-singularix", "repo"]) } }
+              Button { text: "Marketplace"; iconText: "󰏗"; foreground: root.foreground; fontFamily: root.fontFamily
+                       tooltipText: root.rixInstall ? root.rixInstall.marketplace : ""
+                       onClicked: { root.close(); Util.execArgv([root.cli, "get-singularix", "marketplace"]) } }
+              Button { text: "Copy install command"; iconText: "󰆏"; foreground: root.foreground; fontFamily: root.fontFamily
+                       tooltipText: root.rixInstall ? root.rixInstall.command : ""
+                       onClicked: Util.execArgv([root.cli, "get-singularix", "copy"]) }
+            }
+          }
+
           // Requests made in the web viewer wait here (and in a notification).
           Column {
             width: parent.width
@@ -451,9 +496,13 @@ Panel {
                 }
                 Button {
                   text: "Rix"; iconText: "󱚝"; fontFamily: root.fontFamily
-                  foreground: root.available("rix") ? root.foreground : root.dim
-                  tooltipText: root.available("rix") ? "Rix triages it as a worker job in Agent Launcher" : root.reason("rix")
-                  onClicked: if (root.available("rix")) root.act([root.cli, "handoff", "rix", String(row.modelData.id)])
+                  foreground: root.available("rix") ? root.foreground : (root.rixInstall ? Color.accent : root.dim)
+                  tooltipText: root.available("rix") ? "Rix triages it and a worker agent in Singularix starts on the fix"
+                    : (root.rixInstall ? "Rix lives in Singularix: see what it does and where to get it" : root.reason("rix"))
+                  onClicked: {
+                    if (root.available("rix")) root.act([root.cli, "handoff", "rix", String(row.modelData.id)])
+                    else if (root.rixInstall) root.showGetRix = true
+                  }
                 }
                 Button {
                   text: root.targets && root.targets.agent && root.targets.agent.name ? root.targets.agent.name : "Coding agent"

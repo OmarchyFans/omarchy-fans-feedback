@@ -449,6 +449,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return i
 
     def api_get(self, path, q):
+        if path == "/api/handoff-targets":
+            # Read-only: what each hand-off can reach right now, and where to get Rix if it is
+            # missing. The CLI owns the answer so the panel, the viewer and the CLI agree.
+            try:
+                p = subprocess.run([CLI, "handoff", "targets", "--json"], capture_output=True, text=True, timeout=20)
+                return self.send(200, json.loads(p.stdout.strip().splitlines()[-1]))
+            except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+                return self.err(500, "could not read the hand-off targets")
         if path == "/api/issues":
             status = (q.get("status") or ["open"])[0]
             return self.send(200, of_db.list_issues(status))

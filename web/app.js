@@ -492,6 +492,7 @@ function textCard(i) {
 }
 
 function handoffCard(i) {
+  const rixBtn = h("button", { class: "btn", type: "button", text: "Send to Rix", onclick: () => req("rix", "Rix") });
   const req = async (target, words) => {
     try {
       await api("/api/issues/" + i.id + "/handoff", { method: "POST", body: { target } });
@@ -500,16 +501,36 @@ function handoffCard(i) {
       renderDetail();
     } catch (e) { toast("Could not request the hand-off: " + e.message); }
   };
+  // Rix lives in Singularix: when it is missing, say what it would do and where to get it.
+  const getRix = h("div", { class: "get-rix", hidden: true });
+  api("/api/handoff-targets").then((t) => {
+    const inst = t && t.rix && !t.rix.available && t.rix.install;
+    if (!inst) return;
+    const cmd = h("code", { text: inst.command });
+    getRix.replaceChildren(
+      h("h3", { text: inst.headline }),
+      h("p", { text: inst.lead }),
+      h("ul", {}, ...inst.bullets.map((b) => h("li", { text: b }))),
+      h("p", { class: "muted", text: "Install it with:" }), cmd,
+      h("div", { class: "row" },
+        safeHttp(inst.repo) ? h("a", { class: "btn primary", href: inst.repo, target: "_blank", rel: "noopener noreferrer", text: "Singularix on GitHub" }) : null,
+        safeHttp(inst.marketplace) ? h("a", { class: "btn", href: inst.marketplace, target: "_blank", rel: "noopener noreferrer", text: "Marketplace page" }) : null,
+        h("button", { class: "btn", type: "button", text: "Copy install command", onclick: async () => {
+          try { await navigator.clipboard.writeText(inst.command); toast("Install command copied."); } catch (e) { toast("Could not copy: " + e.message); }
+        } })));
+    getRix.hidden = false;
+    rixBtn.title = t.rix.reason || "";
+  }).catch(() => {});
   const list = h("ul", { class: "handoffs" }, ...(i.handoffs || []).map((x) =>
     h("li", { text: stamp(x.created_at) + " → " + x.target + " · " + x.status + (x.result_ref ? " · " + x.result_ref : "") })));
   return h("div", { class: "card" }, h("h2", { text: "Hand off" }),
     h("p", { class: "muted", text: "The viewer only asks; your desktop confirms each hand-off before an agent starts or anything opens." }),
     h("div", { class: "row" },
-      h("button", { class: "btn", type: "button", text: "Send to Rix", onclick: () => req("rix", "Rix") }),
+      rixBtn,
       h("button", { class: "btn", type: "button", text: "Send to coding agent", onclick: () => req("agent", "your coding agent") }),
       h("button", { class: "btn", type: "button", text: "Send to author", disabled: !safeHttp(i.repo_url) || openSecrets(i).length > 0,
         title: openSecrets(i).length ? "Rotate the captured secret and mark it rotated first" : "", onclick: () => req("author", "the author") })),
-    list);
+    getRix, list);
 }
 
 // Saves on this machine (the daemon writes into Downloads) so the card can say where the file is

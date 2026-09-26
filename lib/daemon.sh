@@ -26,7 +26,8 @@ cmd_daemon() {
       [[ -n ${WAYLAND_DISPLAY:-}${OF_HYPR_DIR:-} ]] || fail "no Wayland session"
       ensure_state
       migrate_legacy_state
-      setsid -f python3 "$OF_LIB/feedbackd.py" </dev/null >>"$OF_RUNTIME/daemon.log" 2>&1
+      # The viewer inside the daemon starts hand-offs through the CLI: give it the session PATH.
+      OF_SESSION_PATH="$(session_path)" setsid -f python3 "$OF_LIB/feedbackd.py" </dev/null >>"$OF_RUNTIME/daemon.log" 2>&1
       local i; for ((i = 0; i < 50; i++)); do [[ -S $OF_RUNTIME/ctl.sock ]] && daemon_running && return 0; sleep 0.1; done
       warn "daemon did not come up; see $OF_RUNTIME/daemon.log"; return 1 ;;
     status)

@@ -12,7 +12,7 @@ import qs.Ui
 //
 // The chip keeps the recorder daemon alive (`omarchy-feedback daemon ensure` on load and every
 // 30 s, detached so plugin reloads do not kill it). The list itself lives in IssueList.qml,
-// shared with the window (Window.qml, the plugin's "panel" entry point).
+// shared with the window (FeedbackWindow.qml, the plugin's "panel" entry point).
 Panel {
   id: root
   moduleName: "fans.omarchy.feedback"

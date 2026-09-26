@@ -582,8 +582,8 @@ fi
 echo "== tree: no symlinks, no __pycache__, manifest"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -type l -print) ]] || tfail "symlink in tree"
 [[ -z $(find "$ROOT" -path "$ROOT/.git" -prune -o -name __pycache__ -print) ]] || tfail "__pycache__ created in the tree"
-jq -e '.id=="fans.omarchy.feedback" and .entryPoints.barWidget=="Panel.qml" and .entryPoints.panel=="Window.qml" and (.kinds | index("panel")) and (.keepLoaded | not)' "$ROOT/manifest.json" >/dev/null || tfail manifest
-for f in Panel.qml IssueList.qml Window.qml; do [[ -f $ROOT/$f ]] || tfail "missing $f"; done
+jq -e '.id=="fans.omarchy.feedback" and .entryPoints.barWidget=="Panel.qml" and .entryPoints.panel=="FeedbackWindow.qml" and (.kinds | index("panel")) and (.keepLoaded | not)' "$ROOT/manifest.json" >/dev/null || tfail manifest
+for f in Panel.qml IssueList.qml FeedbackWindow.qml; do [[ -f $ROOT/$f ]] || tfail "missing $f"; done
 pass "tree"
 
 echo "== trusted PATH: shadow executables and foreign stub folders are ignored"

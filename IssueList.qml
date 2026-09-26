@@ -6,7 +6,7 @@ import qs.Commons
 import qs.Ui
 
 // The Feedback issue list, shared by the bar popup (Panel.qml) and the tiled window
-// (Window.qml): the same data, actions and layout in both. The host decides what "leaving"
+// (FeedbackWindow.qml): the same data, actions and layout in both. The host decides what "leaving"
 // means: the popup closes before a terminal or the viewer opens; the window stays put.
 //
 // Everything shown comes from the CLI as JSON (list, handoff targets, handoff pending); every

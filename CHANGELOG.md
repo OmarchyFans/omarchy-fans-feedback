@@ -3,6 +3,10 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.7.1
+
+- The Feedback window opens: its file was renamed so Qt no longer confuses it with its own Window type
+
 ## 0.7.0
 
 - Pop out: the issue list opens in a normal window that stays open and tiles with your other windows

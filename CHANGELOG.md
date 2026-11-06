@@ -3,6 +3,16 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.9.0
+
+- Pick the coding agent: the button offers every installed agent, your default first
+- Hand-off buttons start at once, in the viewer too: no confirmation and no notification
+- Where an issue last went, or why it was not sent, shows under it instead of in a popup
+- Rix is green: Send to Rix, or without Singularix a "Get Rix: free upgrade" button with the pitch under it
+- The pitch says what Rix is: Singularix's Chief of Staff, built on Hermes, local GPU or your own key
+- The hand-off targets load about five times faster (one scan of mise instead of a lookup per agent)
+- Send to author is now Report on GitHub (Report to author for projects without a GitHub repo)
+
 ## 0.8.0
 
 - Installing the plugin now sets everything up: the first time the bar chip loads it adds SUPER + ALT + B, the omarchy-feedback command, the menu section and the web app (once; never replaces your own bindings)

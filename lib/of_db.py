@@ -294,7 +294,9 @@ def list_issues(status="open"):
     db = connect()
     q = ("SELECT i.*, (SELECT COUNT(*) FROM events e WHERE e.issue_id = i.id) AS event_count, "
          "(SELECT GROUP_CONCAT(kind) FROM attachments a WHERE a.issue_id = i.id) AS attachment_kinds, "
-         "(SELECT COUNT(*) FROM handoffs h WHERE h.issue_id = i.id AND h.status = 'pending-confirm') AS pending_handoffs, "
+         # The latest hand-off that ran, so the panel can say where it went or why it failed.
+         "(SELECT json_object('target', h.target, 'status', h.status, 'result', h.result_ref, 'at', h.created_at) "
+         " FROM handoffs h WHERE h.issue_id = i.id AND h.status IN ('launched', 'failed') ORDER BY h.id DESC LIMIT 1) AS last_handoff, "
          "(SELECT COUNT(*) FROM secrets s WHERE s.issue_id = i.id AND s.rotated_at IS NULL) AS secrets_open "
          "FROM issues i")
     args = ()
@@ -309,6 +311,7 @@ def list_issues(status="open"):
     for r in db.execute(q, args):
         d = row(r)
         d["attachment_kinds"] = sorted(set((d.get("attachment_kinds") or "").split(","))) if d.get("attachment_kinds") else []
+        d["last_handoff"] = json.loads(d["last_handoff"]) if d.get("last_handoff") else None
         d.pop("context_json", None)
         out.append(d)
     return out

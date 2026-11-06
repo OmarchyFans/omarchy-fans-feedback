@@ -275,7 +275,7 @@ if want capture; then
 fi
 
 if want handoff; then
-  echo "== handoff: Rix, coding agent, author; request/confirm from the viewer"
+  echo "== handoff: Rix, coding agents (picked from the installed ones), author; no confirmations, no popups"
   export OF_PLUGINS_DIR="$T/plugins" OF_WORK_DIR="$T/work"
   mkdir -p "$OF_PLUGINS_DIR/test.plugin" "$OF_PLUGINS_DIR/local.plugin" "$T/src/other" "$OF_WORK_DIR"
   printf '{"schemaVersion":1,"id":"test.plugin","name":"Test Plugin","version":"1.2.3","author":"modpunk","kinds":["bar-widget"],"entryPoints":{"barWidget":"P.qml"}}\n' >"$OF_PLUGINS_DIR/test.plugin/manifest.json"
@@ -296,16 +296,21 @@ if want handoff; then
 
   unset OF_TEST_AGENT; rm -f "$T/rix.json"
   t=$("$B" handoff targets "$i_test")
-  [[ $(j .rix.available "$t") == false && $(j .rix.reason "$t") == *"not set up"* && $(j .agent.available "$t") == false \
-     && $(j .author.kind "$t") == github ]] || tfail "targets when unavailable: $t"
+  # No default chosen: the installed agents are still offered (the stub claude; myagent and
+  # nosuchagent are not on PATH), so a click still has somewhere to go.
+  [[ $(j .rix.installed "$t") == true && $(j .rix.available "$t") == false && $(j .rix.reason "$t") == *"not set up"* \
+     && $(j '.agent.agents | map(.id) | join(",")' "$t") == claude && $(j .agent.name "$t") == claude \
+     && $(j '.agent.agents[0].label' "$t") == "Claude Code" && $(j .author.kind "$t") == github ]] || tfail "targets when unavailable: $t"
   : >"$OF_TEST_LOG"
   "$B" handoff rix "$i_test" >/dev/null 2>&1 && tfail "Rix hand-off must fail when Rix is not set up"
-  grep -q "notify .*Feedback #$i_test was not sent to Rix .*Rix is not set up" "$OF_TEST_LOG" || tfail "a failed hand-off must reach the desktop: $(grep notify "$OF_TEST_LOG")"
+  ! grep -q "^notify" "$OF_TEST_LOG" || tfail "a failed hand-off must not pop up a notification: $(grep notify "$OF_TEST_LOG")"
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_test" | jq -r '.handoffs[-1].status') == failed ]] || tfail "failed hand-off recorded"
+  lh=$("$B" list --json --status all | jq -c --argjson i "$i_test" '.[] | select(.id == $i) | .last_handoff')
+  [[ $(j .status "$lh") == failed && $(j .result "$lh") == *"Rix is not set up"* ]] || tfail "the list must say why it was not sent: $lh"
   export OF_TEST_AGENT=claude
   printf '{"name":"rix","configured":true,"running":true,"model":"m","backend":"","provider":"local","default_backend":"local","workers":[]}\n' >"$T/rix.json"
   t=$("$B" handoff targets); [[ $(j .rix.available "$t") == true && $(j .agent.name "$t") == claude ]] || tfail "targets when available: $t"
-  pass "availability: Rix not set up, no default agent, GitHub author link"
+  pass "availability: Rix not set up, installed agents without a default, GitHub author link; failures recorded, not popped up"
 
   : >"$OF_TEST_LOG"
   rows=$(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq '.handoffs | length')
@@ -324,7 +329,9 @@ if want handoff; then
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq '.handoffs | length') == "$rows" && \
      $(python3 "$ROOT/lib/of_db.py" get "$i_clone" | jq -r .status) == "$st" && \
      $(python3 "$ROOT/lib/of_db.py" get "$i_test" | jq '.handoffs | length') == "$rows_t" ]] || tfail "dry-run recorded a hand-off or changed status"
-  "$B" handoff confirm 1 --dry-run >/dev/null 2>&1 && tfail "dry-run confirm must refuse"
+  for gone in request confirm decline pending; do
+    "$B" handoff "$gone" 1 >/dev/null 2>&1 && tfail "handoff $gone is gone: buttons run at once"
+  done
   pass "--dry-run prints the plan and starts, clones and records nothing"
 
   : >"$OF_TEST_LOG"
@@ -357,7 +364,7 @@ if want handoff; then
   : >"$OF_TEST_LOG"
   "$B" handoff agent "$i_local" >/dev/null || tfail "agent hand-off (local checkout)"
   a=$(grep "omarchy-launch-tui" "$OF_TEST_LOG" | tail -n1 | sed 's/^omarchy-launch-tui //')
-  [[ $(jq -r '.[0]' <<<"$a") == --app-id=org.omarchy.agent && $(jq -r '.[1]' <<<"$a") == bash && $(jq -r '.[3]' <<<"$a") == 'cd -- "$1" && exec omarchy-agent --inline --prompt "$2"' ]] || tfail "agent launch argv: $a"
+  [[ $(jq -r '.[0]' <<<"$a") == --app-id=org.omarchy.agent && $(jq -r '.[1]' <<<"$a") == bash && $(jq -r '.[3]' <<<"$a") == *'exec omarchy-agent --inline --prompt "$2"' && $(jq 'length' <<<"$a") == 7 ]] || tfail "agent launch argv: $a"
   [[ $(jq -r '.[5]' <<<"$a") == "$T/src/other" ]] || tfail "local checkout workdir: $a"
   [[ $(jq -r '.[6]' <<<"$a") == "Read $OF_STATE/issues/$i_local/FEEDBACK.md: feedback issue #$i_local"* ]] || tfail "agent prompt: $a"
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_local" | jq -r .status) == sent-to-agent ]] || tfail "status sent-to-agent"
@@ -368,12 +375,31 @@ if want handoff; then
   "$B" handoff agent "$i_app" >/dev/null || tfail "agent hand-off (app)"
   [[ $(agent_wd) == "$OF_WORK_DIR/tries/feedback-$i_app" && -s $OF_WORK_DIR/tries/feedback-$i_app/FEEDBACK.md ]] || tfail "scratch folder for apps: $(agent_wd)"
   ! grep -q "$OF_PLUGINS_DIR" <<<"$(grep omarchy-launch-tui "$OF_TEST_LOG")" || tfail "an agent was pointed at the installed plugins folder"
-  OF_TEST_AGENT="" "$B" handoff agent "$i_unknown" >/dev/null 2>&1 && tfail "no default agent must fail"
+  "$B" handoff agent "$i_unknown" --agent nosuchagent >/dev/null 2>&1 && tfail "an agent that is not installed must fail"
+  [[ $(python3 "$ROOT/lib/of_db.py" get "$i_unknown" | jq -r '.handoffs[-1].status') == failed ]] || tfail "not-installed agent recorded as failed"
+  "$B" handoff agent "$i_unknown" --agent 'x;y' >/dev/null 2>&1 && tfail "odd agent names must be refused"
+  # Picking an agent other than the default: the terminal's bash answers omarchy-default-agent
+  # with the pick, so omarchy-agent starts it with Omarchy's own flags; the user's default stays.
+  mkdir -p "$T/mise-bin"; printf '#!/bin/bash\ntouch %q\n' "$T/agent-ran" >"$T/mise-bin/myagent"; chmod +x "$T/mise-bin/myagent"
+  t=$(PATH="$T/mise-bin:$PATH" "$B" handoff targets --json)
+  [[ $(j '.agent.agents | map(.id) | join(",")' "$t") == claude,myagent && $(j '.agent.agents[0].default' "$t") == true ]] || tfail "installed agents, default first: $t"
+  : >"$OF_TEST_LOG"
+  PATH="$T/mise-bin:$PATH" "$B" handoff agent "$i_app" --agent myagent >/dev/null || tfail "hand-off to a picked agent"
+  a=$(grep "omarchy-launch-tui" "$OF_TEST_LOG" | tail -n1 | sed 's/^omarchy-launch-tui //')
+  [[ $(jq -r '.[7]' <<<"$a") == myagent && $(jq -r '.[3]' <<<"$a") == *'export -f omarchy-default-agent'* ]] || tfail "picked agent argv: $a"
+  [[ ! -e $T/agent-ran ]] || tfail "Feedback itself must not run the agent binary"
+  # Run the terminal's script for real against a fake omarchy-agent: it must see the pick.
+  mkdir -p "$T/fake-oa"; printf '#!/bin/bash\nomarchy-default-agent >%q\n' "$T/picked" >"$T/fake-oa/omarchy-agent"; chmod +x "$T/fake-oa/omarchy-agent"
+  PATH="$T/fake-oa:$PATH" bash -c "$(jq -r '.[3]' <<<"$a")" feedback-agent "$T" "prompt" myagent
+  [[ $(cat "$T/picked") == myagent ]] || tfail "omarchy-agent must be told the picked agent: $(cat "$T/picked")"
+  [[ $(python3 "$ROOT/lib/of_db.py" get "$i_app" | jq -r '.handoffs[-1].result_ref') == "myagent in "* ]] || tfail "picked agent recorded"
   mkdir -p "$T/mise-bin"; printf '#!/bin/bash\ntouch %q\n' "$T/agent-ran" >"$T/mise-bin/myagent"; chmod +x "$T/mise-bin/myagent"
   t=$(PATH="$T/mise-bin:$PATH" OF_TEST_AGENT=myagent "$B" handoff targets --json)
   [[ $(j .agent.available "$t") == true && ! -e $T/agent-ran ]] || tfail "agent only on the user's PATH (e.g. mise) must count as installed, unrun: $t"
-  [[ $(j .agent.available "$(OF_TEST_AGENT=myagent "$B" handoff targets --json)") == false ]] || tfail "a missing agent must be unavailable"
-  [[ $(j .agent.available "$(OF_TEST_AGENT='x;y' "$B" handoff targets --json)") == false ]] || tfail "odd agent names must be refused"
+  t=$(OF_TEST_AGENT=myagent "$B" handoff targets --json)
+  [[ $(j '.agent.agents | map(.id) | join(",")' "$t") == claude && $(j .agent.name "$t") == claude ]] || tfail "a default that is not installed is left out: $t"
+  t=$(OF_TEST_AGENT='x;y' "$B" handoff targets --json)
+  [[ $(j '.agent.agents | map(.id) | join(",")' "$t") == claude ]] || tfail "odd default names must be ignored: $t"
   s0=$(date +%s%N); OF_TUI_STAY=8 "$B" handoff agent "$i_app" >/dev/null || tfail "agent hand-off with a terminal that stays open"
   (( ($(date +%s%N) - s0) / 1000000 < 4000 )) || tfail "hand-off waited for the agent terminal to close"
   pkill -f '^sleep 8$' 2>/dev/null || true
@@ -398,21 +424,20 @@ if want handoff; then
   : >"$OF_TEST_LOG"
   OF_OAL_DEAD=1 "$B" handoff rix "$i_app" >/dev/null 2>&1 && tfail "a worker that dies on start must fail the hand-off"
   grep -q "^omarchy-agent-launcher stop feedback-$i_app-" "$OF_TEST_LOG" || tfail "the dead worker must be stopped: $(cat "$OF_TEST_LOG")"
-  grep -q "notify .*was not sent to Rix .*stopped at once: env: ‘hermes’: No such file or directory" "$OF_TEST_LOG" || tfail "dead worker reported: $(grep notify "$OF_TEST_LOG")"
+  [[ $(python3 "$ROOT/lib/of_db.py" get "$i_app" | jq -r '.handoffs[-1].result_ref') == *"stopped at once: env: ‘hermes’: No such file or directory"* ]] || tfail "dead worker reason recorded"
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_app" | jq -r '.handoffs[-1].status') == failed ]] || tfail "dead worker recorded as failed"
   pass "a Rix worker that dies on start is stopped, recorded as failed and reported"
 
   : >"$OF_TEST_LOG"
   t=$(OF_OAL_SYSTEM=0 OF_PLUGINS_DIR="$T/empty-plugins" "$B" handoff targets --json)
-  [[ $(j .rix.available "$t") == false && $(j .rix.install.repo "$t") == https://github.com/OmarchyFans/Omarchy-Singularix \
-     && $(j .rix.install.marketplace "$t") == "https://plugins.omarchy.org/plugin.html?id=fans.omarchy.singularix" \
-     && $(j '.rix.install.bullets | length' "$t") -ge 3 && $(j .rix.install.command "$t") == "omarchy plugin add "* ]] || tfail "install card when Singularix is missing: $t"
+  [[ $(j .rix.installed "$t") == false && $(j .rix.available "$t") == false ]] || tfail "no Rix without Singularix: $t"
+  [[ $(j .rix.install.command "$t") == "omarchy plugin add https://github.com/OmarchyFans/Omarchy-Singularix --enable" && $(j .rix.install.button "$t") == *free* ]] || tfail "without Singularix the targets offer the free upgrade: $t"
   OF_OAL_SYSTEM=0 OF_PLUGINS_DIR="$T/empty-plugins" "$B" handoff rix "$i_app" >/dev/null 2>&1 && tfail "Rix hand-off without Singularix must fail"
-  grep -q "notify .*Rix needs Singularix .*--exec .* get-singularix repo" "$OF_TEST_LOG" || tfail "missing-Singularix notification: $(grep notify "$OF_TEST_LOG")"
+  ! grep -q "^notify" "$OF_TEST_LOG" || tfail "no notification without Singularix: $(grep notify "$OF_TEST_LOG")"
   "$B" get-singularix repo && sleep 0.3 && grep -q "^xdg-open https://github.com/OmarchyFans/Omarchy-Singularix" "$OF_TEST_LOG" || tfail "get-singularix repo: $(cat "$OF_TEST_LOG")"
   "$B" get-singularix copy >/dev/null && grep -q "^wl-copy" "$OF_TEST_LOG" || tfail "get-singularix copy"
   "$B" get-singularix | grep -q "Install:     omarchy plugin add https://github.com/OmarchyFans/Omarchy-Singularix" || tfail "get-singularix pitch"
-  pass "without Singularix, Rix points at its GitHub repo, marketplace page and install command"
+  pass "without Singularix there is no Rix hand-off (and no popup), only the free upgrade; get-singularix says where to get it"
 
   : >"$OF_TEST_LOG"
   "$B" handoff author "$i_test" >/dev/null || tfail "author hand-off (GitHub)"
@@ -422,23 +447,15 @@ if want handoff; then
   [[ $(python3 "$ROOT/lib/of_db.py" get "$i_test" | jq -r .status) == sent-to-author ]] || tfail "status sent-to-author"
   "$B" handoff author "$i_app" >/dev/null || tfail "author hand-off (homepage)"
   grep -q "^wl-copy " "$OF_TEST_LOG" && grep -q "^xdg-open https://www.gnu.org/software/bash/bash.html" "$OF_TEST_LOG" || tfail "homepage + clipboard: $(cat "$OF_TEST_LOG")"
+  ! grep -q "^notify" "$OF_TEST_LOG" || tfail "the author hand-off must not pop up a notification"
   "$B" handoff author "$i_unknown" >/dev/null 2>&1 && tfail "author hand-off without a project link must fail"
   pass "author: prefilled GitHub issue opened for review; homepage + clipboard otherwise"
 
   : >"$OF_TEST_LOG"
-  r=$("$B" handoff request rix "$i_app" --json) || tfail "request"
-  hid=$(j .handoff "$r"); [[ $(j .status "$r") == pending-confirm ]] || tfail "request result: $r"
-  ! grep -q "delegate" "$OF_TEST_LOG" || tfail "a request must not run anything"
-  grep -q "Send feedback #$i_app to Rix? .* --exec $B handoff confirm $hid" "$OF_TEST_LOG" || tfail "confirm notification: $(cat "$OF_TEST_LOG")"
-  [[ $("$B" handoff pending --json | jq -r '.[0].id') == "$hid" ]] || tfail "pending list"
-  "$B" handoff confirm "$hid" >/dev/null || tfail "confirm"
-  grep -q "delegate --backend local" "$OF_TEST_LOG" || tfail "confirm runs the hand-off"
-  [[ $(python3 "$ROOT/lib/of_db.py" handoff-get "$hid" | jq -r .status) == launched ]] || tfail "confirmed request launched"
-  "$B" handoff confirm "$hid" >/dev/null 2>&1 && tfail "a request can only be confirmed once"
-  hid2=$("$B" handoff request author "$i_test" --json | jq -r .handoff)
-  "$B" handoff decline "$hid2" >/dev/null || tfail decline
-  [[ $(python3 "$ROOT/lib/of_db.py" handoff-get "$hid2" | jq -r .status) == declined && $("$B" handoff pending --json | jq length) == 0 ]] || tfail "declined"
-  pass "viewer requests wait for a desktop confirmation; confirm once; decline"
+  r=$("$B" handoff rix "$i_app" --json) || tfail "hand-off with --json"
+  [[ $(j .target "$r") == rix && $(j .status "$r") == launched ]] || tfail "--json prints the hand-off: $r"
+  grep -q "delegate --backend local" "$OF_TEST_LOG" || tfail "the hand-off ran at once"
+  pass "a hand-off runs at once and --json prints its record (what the viewer shows)"
 fi
 
 if want secrets; then

@@ -7,8 +7,8 @@
 **Summary:** Record feedback about anything on the desktop. SUPER + ALT + B takes a
 screenshot, attaches the last minutes of an event log (window focus and shortcuts,
 never typed text) and an optional in-memory screen replay, opens Tensaku for
-markup, and files a local issue. Issues can be handed to Agent Launcher's Rix, the
-Omarchy default coding agent, or the project author (a prefilled GitHub issue the
+markup, and files a local issue. Issues can be handed to Agent Launcher's Rix, any
+installed coding agent, or the project author (a prefilled GitHub issue the
 user reviews). A local web viewer replays the lead-up and exports PDF or Markdown.
 
 **Capabilities the baseline scan will list, all by design:**

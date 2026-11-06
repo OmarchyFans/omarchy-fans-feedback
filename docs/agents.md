@@ -20,11 +20,11 @@ runs
 
 then opens the Singularix dashboard on the Rix tab. Rix is recorded as the
 worker's parent, so the job shows up in his tasks. The backend is the one Rix
-runs on (or its default backend). When Singularix is missing, the Rix button
-(in the bar panel and the viewer) shows what Rix and Singularix do, with the
-GitHub repository, the marketplace page and a Copy install command
-(`omarchy-feedback get-singularix` prints the same). When Rix is not set up
-(`omarchy-agent-launcher rix setup`). Read the result with the command stored on
+runs on (or its default backend). When Singularix is missing there is no Rix
+hand-off: the bar panel and the viewer show a green "Get Rix: free upgrade"
+button in its place, with the pitch under it in the viewer (its tooltip in the
+panel). `omarchy-feedback get-singularix` prints the same pitch and where to get it. When Rix is not set up (`omarchy-agent-launcher rix setup`),
+the button is dimmed and says so. Read the result with the command stored on
 the hand-off (`omarchy-agent-launcher result feedback-…`), shown in the viewer.
 
 Right after the hand-off Feedback reads the worker's first output. A worker that
@@ -43,12 +43,20 @@ the child will get.
 ## Your coding agent
 
 ```
-omarchy-feedback handoff agent <id>
+omarchy-feedback handoff agent <id> [--agent <name>]
 ```
 
-uses Omarchy's default agent (`omarchy default agent <name>`; Claude Code,
-Codex, OpenCode, Gemini, …) with Omarchy's own flags for it, in a terminal that
-changes into the right folder first:
+opens a coding agent (Claude Code, Codex, Grok, OpenCode, …) with Omarchy's own
+flags for it, in a terminal that changes into the right folder first. The panel
+and the viewer offer the agents that are installed, Omarchy's default
+(`omarchy default agent <name>`) first; with one installed, the button goes
+straight to it. Installed means the command runs without installing anything:
+Omarchy keeps a lazy mise shim for every agent it knows, so for those mise is
+asked whether the tool is really there.
+
+A picked agent other than the default starts through `omarchy-agent` like the
+default does: the agent's terminal answers `omarchy-default-agent` with the pick
+for that launch, so your default is left alone.
 
 | Issue about | Folder |
 |---|---|

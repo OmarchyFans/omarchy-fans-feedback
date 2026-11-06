@@ -1,3 +1,4 @@
 #!/bin/bash
+# omarchy:args=[claude|myagent|nosuchagent]
 # Prints $OF_TEST_AGENT (the test sets it; empty = no default chosen).
 printf '%s\n' "${OF_TEST_AGENT:-}"

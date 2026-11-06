@@ -96,8 +96,16 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 .swatch.on { border-color: var(--fg); }
 
 .handoffs li { font-size: 13px; color: var(--muted); }
-.get-rix { border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 12px; margin: 10px 0; }
-.get-rix h3 { margin: 0 0 6px; font-size: 15px; color: var(--accent); }
+/* Rix in the theme's green, toned to a medium green so it sits with the theme's other colours. */
+:root { --rix: color-mix(in srgb, var(--green) 85%, var(--bg)); }
+.btn.rix { border-color: var(--rix); color: var(--rix); }
+.btn.rix:hover:not(:disabled) { background: color-mix(in srgb, var(--rix) 14%, transparent); }
+.get-rix { position: relative; border: 1px solid var(--rix); border-radius: var(--radius); padding: 10px 12px; margin: 12px 0 10px;
+  background: color-mix(in srgb, var(--rix) 7%, transparent); }
+/* the notch points up at the Rix button, the first in the row */
+.get-rix::before { content: ""; position: absolute; top: -7px; left: 24px; width: 0; height: 0;
+  border: 7px solid transparent; border-top: 0; border-bottom-color: var(--rix); }
+.get-rix h3 { margin: 0 0 6px; font-size: 15px; color: var(--rix); }
 .get-rix ul { margin: 6px 0 10px; padding-left: 18px; }
 .get-rix li { margin: 3px 0; }
 .get-rix code { display: block; overflow-wrap: anywhere; user-select: all; font-variant-ligatures: none; margin: 4px 0 10px; padding: 6px 8px; }

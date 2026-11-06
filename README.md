@@ -30,15 +30,16 @@ screenshots and logs never leave the machine unless you send them.
 - **Local issue list.** Click the bug to see new, triaged, sent and fixed issues, with
   status, notes and delete. **Pop out** moves the list into a normal window that stays open and
   tiles with your other windows (`omarchy-feedback window` opens it from a key or a terminal).
-- **Hand it off in one click:**
+- **Hand it off in one click.** The button starts it: no confirmation, no notification.
+  Where an issue last went, or why it was not sent, shows under it.
   - **Rix**, the Chief of Staff in [Singularix](https://github.com/OmarchyFans/Omarchy-Singularix),
-    triages it as a worker job.
-    No Singularix yet? The Rix button shows what it does, with its GitHub page, its marketplace page
-    and the install command.
-  - **Your coding agent** (Omarchy's default, e.g. Claude Code) opens in the project's
-    folder with an issue brief that treats the report as untrusted input.
-  - **The author** gets a prefilled issue on the project's repository that you review
-    before posting.
+    triages it as a worker job. Without Singularix the button offers it as a free upgrade instead.
+  - **Coding agent** opens the agent you pick from the ones installed (Claude Code, Codex,
+    Grok, …; Omarchy's default first) in the project's folder, with an issue brief that treats
+    the report as untrusted input.
+  - **Report on GitHub** opens a prefilled issue on the project's repository for its author to
+    review; nothing is posted until you press Submit. Projects without a GitHub repository get
+    **Report to author**: the report goes on your clipboard and their page opens.
 - **Replay viewer.** A local web app plays the video in sync with the event timeline, or
   steps through the events over the screenshot. It follows your Omarchy theme and installs
   as a web app.
@@ -114,7 +115,8 @@ omarchy-feedback capture --no-form --title T [--kind bug|feature] [--subject aut
 omarchy-feedback list [--status open|all|<status>] [--json]
 omarchy-feedback show <id> [--json]
 omarchy-feedback set <id> status|notes|title|description|kind <value>
-omarchy-feedback handoff rix|agent|author <id>
+omarchy-feedback handoff rix|author <id>
+omarchy-feedback handoff agent <id> [--agent <name>]
 omarchy-feedback open [id]
 omarchy-feedback window [open|close|toggle]
 omarchy-feedback export <id> --md|--pdf [--out FILE]

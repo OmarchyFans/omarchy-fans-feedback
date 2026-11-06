@@ -21,9 +21,10 @@
 #
 # Hand-offs:
 #   omarchy-feedback handoff rix <id>        Rix (Agent Launcher's chief of staff) triages it as a worker job
-#   omarchy-feedback handoff agent <id>      your default coding agent opens in the project folder
+#   omarchy-feedback handoff agent <id> [--agent <name>]
+#                                            a coding agent opens in the project folder (default: Omarchy's default agent)
 #   omarchy-feedback handoff author <id>     a prefilled issue on the project's GitHub (you review and submit)
-#   omarchy-feedback handoff request <target> <id> | confirm <n> | decline <n> | targets [id] | pending
+#   omarchy-feedback handoff targets [id]    Rix installed or not, the installed coding agents, the author link
 #   omarchy-feedback get-singularix [repo|marketplace|copy]   where to get Rix (Singularix) and why
 #
 # Recorder (always on while you are logged in, pauses while the screen is locked):

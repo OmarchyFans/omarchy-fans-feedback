@@ -88,8 +88,10 @@ Nothing is sent anywhere by filing. A hand-off is always your click:
   Nothing is posted until you press Submit there, and screenshots and the replay
   are attached only if you drag them in.
 
-The web viewer can only *ask* for a hand-off; your desktop shows a notification
-and runs it only after you confirm.
+A hand-off button in the web viewer runs it just like the bar panel's: no second
+confirmation. The viewer only answers its own page (exact Host, the per-machine
+token, same-origin requests with a JSON body), takes only the fixed targets and an
+installed agent's name, and the folder and the prompt are chosen by Feedback.
 
 ## The web viewer
 

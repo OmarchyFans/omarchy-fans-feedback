@@ -310,7 +310,7 @@ class ViewerTests(unittest.TestCase):
         finally:
             os.environ.pop("OF_SCAN_SYNC", None)
 
-    def test_handoff_targets_offer_singularix(self):
+    def test_handoff_targets_without_singularix(self):
         os.environ["OF_OAL_SYSTEM"] = "0"
         try:
             r, body = self.req("GET", "/api/handoff-targets")
@@ -318,17 +318,26 @@ class ViewerTests(unittest.TestCase):
             os.environ.pop("OF_OAL_SYSTEM", None)
         self.assertEqual(r.status, 200, body[:300])
         t = json.loads(body)
-        self.assertFalse(t["rix"]["available"])
-        self.assertEqual(t["rix"]["install"]["repo"], "https://github.com/OmarchyFans/Omarchy-Singularix")
-        self.assertIn("fans.omarchy.singularix", t["rix"]["install"]["marketplace"])
+        self.assertFalse(t["rix"]["installed"])
+        inst = t["rix"]["install"]  # the free upgrade the viewer offers in place of Send to Rix
+        self.assertTrue(inst["command"].startswith("omarchy plugin add https://github.com/OmarchyFans/Omarchy-Singularix"))
+        self.assertIn("Chief of Staff", inst["lead"])
+        self.assertTrue(inst["button"] and inst["headline"] and inst["bullets"])
+        self.assertIsInstance(t["agent"]["agents"], list)
         r, _ = self.req("GET", "/api/handoff-targets", token=False)
         self.assertEqual(r.status, 401)
 
-    def test_handoff_request_only_records(self):
+    def test_handoff_rejects_bad_input(self):
         r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "shell; rm -rf ~"})
         self.assertEqual(r.status, 400)
+        for agent in ("x;y", "../bin/sh", 7, ""):
+            r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "agent", "agent": agent})
+            self.assertEqual(r.status, 400, agent)
+        r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "rix", "agent": "claude"})
+        self.assertEqual(r.status, 400)
+        r, body = self.req("POST", "/api/issues/%d/handoff" % self.issue, {"target": "agent", "agent": "claude"}, site="cross-site")
+        self.assertEqual(r.status, 403)
         self.assertEqual(of_db.get_issue(self.issue)["handoffs"], [])
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=0)

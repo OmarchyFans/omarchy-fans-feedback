@@ -491,46 +491,74 @@ function textCard(i) {
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", text: "Save text", onclick: () => patch({ description: desc.value, notes: notes.value }) })));
 }
 
+// The author button says where the report goes: a GitHub issue the user reviews and submits, or
+// (no GitHub repo) the project's own page with the report on the clipboard.
+function authorTarget(i) {
+  const gh = /^https:\/\/github\.com\/([^/]+\/[^/]+)$/.exec(i.repo_url || "");
+  if (gh) return { label: "Report on GitHub", title: "Open a prefilled issue on " + gh[1] + " for the author to review. You check it and press Submit." };
+  return { label: "Report to author", title: "Copy the report and open " + (i.repo_url || "the project's page") + " to paste it where the author takes reports." };
+}
+
 function handoffCard(i) {
-  const rixBtn = h("button", { class: "btn", type: "button", text: "Send to Rix", onclick: () => req("rix", "Rix") });
-  const req = async (target, words) => {
+  const go = async (body, btn) => {
+    btn.disabled = true;
     try {
-      await api("/api/issues/" + i.id + "/handoff", { method: "POST", body: { target } });
-      toast("Confirm on your desktop: a notification asks before anything is sent to " + words + ".", 7000);
-      S.current = await api("/api/issues/" + i.id);
+      S.current = await api("/api/issues/" + i.id + "/handoff", { method: "POST", body });
       renderDetail();
-    } catch (e) { toast("Could not request the hand-off: " + e.message); }
+    } catch (e) { toast("Not sent: " + e.message, 7000); btn.disabled = false; }
   };
-  // Rix lives in Singularix: when it is missing, say what it would do and where to get it.
-  const getRix = h("div", { class: "get-rix", hidden: true });
+  const row = h("div", { class: "row" });
+  // Rix lives in Singularix: when it is missing, the Rix button offers the free upgrade and the
+  // pitch hangs off it (same green, a notch pointing up at it), so it reads as that button's.
+  const getRix = h("div", { class: "get-rix", id: "get-rix-" + i.id, hidden: true });
+  // Rix and the agents come from the CLI: only installed agents, the default first.
   api("/api/handoff-targets").then((t) => {
-    const inst = t && t.rix && !t.rix.available && t.rix.install;
-    if (!inst) return;
-    const cmd = h("code", { text: inst.command });
-    getRix.replaceChildren(
-      h("h3", { text: inst.headline }),
-      h("p", { text: inst.lead }),
-      h("ul", {}, ...inst.bullets.map((b) => h("li", { text: b }))),
-      h("p", { class: "muted", text: "Install it with:" }), cmd,
-      h("div", { class: "row" },
-        safeHttp(inst.repo) ? h("a", { class: "btn primary", href: inst.repo, target: "_blank", rel: "noopener noreferrer", text: "Singularix on GitHub" }) : null,
-        safeHttp(inst.marketplace) ? h("a", { class: "btn", href: inst.marketplace, target: "_blank", rel: "noopener noreferrer", text: "Marketplace page" }) : null,
-        h("button", { class: "btn", type: "button", text: "Copy install command", onclick: async () => {
-          try { await navigator.clipboard.writeText(inst.command); toast("Install command copied."); } catch (e) { toast("Could not copy: " + e.message); }
-        } })));
-    getRix.hidden = false;
-    rixBtn.title = t.rix.reason || "";
+    const btns = [];
+    if (t && t.rix && t.rix.installed) {
+      const b = h("button", { class: "btn rix", type: "button", text: "Send to Rix", disabled: !t.rix.available, title: t.rix.reason || "",
+        onclick: () => go({ target: "rix" }, b) });
+      btns.push(b);
+    } else if (t && t.rix && t.rix.install) {
+      const inst = t.rix.install;
+      const b = h("button", { class: "btn rix", type: "button", text: inst.button || "Get Rix: free upgrade",
+        "aria-expanded": "true", "aria-controls": getRix.id,
+        onclick: () => { getRix.hidden = !getRix.hidden; b.setAttribute("aria-expanded", String(!getRix.hidden)); } });
+      btns.push(b);
+      getRix.replaceChildren(
+        h("h3", { text: inst.headline }),
+        h("p", { text: inst.lead }),
+        h("ul", {}, ...(inst.bullets || []).map((x) => h("li", { text: x }))),
+        h("p", { class: "muted", text: "Install it with:" }), h("code", { text: inst.command }),
+        h("div", { class: "row" },
+          safeHttp(inst.repo) ? h("a", { class: "btn rix", href: inst.repo, target: "_blank", rel: "noopener noreferrer", text: "Singularix on GitHub" }) : null,
+          safeHttp(inst.marketplace) ? h("a", { class: "btn", href: inst.marketplace, target: "_blank", rel: "noopener noreferrer", text: "Marketplace page" }) : null,
+          h("button", { class: "btn", type: "button", text: "Copy install command", onclick: async () => {
+            try { await navigator.clipboard.writeText(inst.command); toast("Install command copied."); } catch (e) { toast("Could not copy: " + e.message); }
+          } })));
+      getRix.hidden = false;
+    }
+    const agents = (t && t.agent && t.agent.agents) || [];
+    if (agents.length) {
+      const pick = h("select", { "aria-label": "Coding agent" },
+        ...agents.map((a) => h("option", { value: a.id, text: a.label + (a.default ? " (default)" : "") })));
+      const b = h("button", { class: "btn", type: "button", text: "Send to agent",
+        title: "Open the agent in the project folder with this issue",
+        onclick: () => go({ target: "agent", agent: pick.value }, b) });
+      btns.push(agents.length > 1 ? pick : null, b);
+    } else {
+      btns.push(h("button", { class: "btn", type: "button", text: "Send to agent", disabled: true, title: (t && t.agent && t.agent.reason) || "" }));
+    }
+    const au = authorTarget(i);
+    const secrets = openSecrets(i).length > 0;
+    const ab = h("button", { class: "btn", type: "button", text: au.label, disabled: !safeHttp(i.repo_url) || secrets,
+      title: secrets ? "Rotate the captured secret and mark it rotated first" : (safeHttp(i.repo_url) ? au.title : "No project link for this subject"),
+      onclick: () => go({ target: "author" }, ab) });
+    btns.push(ab);
+    row.replaceChildren(...btns.filter(Boolean));
   }).catch(() => {});
-  const list = h("ul", { class: "handoffs" }, ...(i.handoffs || []).map((x) =>
-    h("li", { text: stamp(x.created_at) + " → " + x.target + " · " + x.status + (x.result_ref ? " · " + x.result_ref : "") })));
-  return h("div", { class: "card" }, h("h2", { text: "Hand off" }),
-    h("p", { class: "muted", text: "The viewer only asks; your desktop confirms each hand-off before an agent starts or anything opens." }),
-    h("div", { class: "row" },
-      rixBtn,
-      h("button", { class: "btn", type: "button", text: "Send to coding agent", onclick: () => req("agent", "your coding agent") }),
-      h("button", { class: "btn", type: "button", text: "Send to author", disabled: !safeHttp(i.repo_url) || openSecrets(i).length > 0,
-        title: openSecrets(i).length ? "Rotate the captured secret and mark it rotated first" : "", onclick: () => req("author", "the author") })),
-    getRix, list);
+  const list = h("ul", { class: "handoffs" }, ...(i.handoffs || []).filter((x) => x.status === "launched" || x.status === "failed").map((x) =>
+    h("li", { text: stamp(x.created_at) + " → " + x.target + " · " + (x.status === "failed" ? "not sent" : "sent") + (x.result_ref ? " · " + x.result_ref : "") })));
+  return h("div", { class: "card" }, h("h2", { text: "Hand off" }), row, getRix, list);
 }
 
 // Saves on this machine (the daemon writes into Downloads) so the card can say where the file is

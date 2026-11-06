@@ -12,8 +12,10 @@ Security model. Any web page in the browser can reach a loopback server, so:
   - mutations also need Sec-Fetch-Site: same-origin, Origin equal to the viewer's
     origin and a JSON body -> 403 (no CORS headers are ever sent);
   - media (<video>, <img>) use short-lived HMAC-signed URLs instead of the token;
-  - the page cannot delete issues or start agents: a hand-off from the viewer only
-    records a request that the desktop confirms (notification or the bar panel).
+  - the page cannot delete issues. A hand-off button runs the hand-off as the bar panel's
+    does: the click is the go-ahead. Only the fixed targets and an agent from the
+    installed list are accepted, the CLI picks the folder and writes the prompt, and the
+    agent reads the report as untrusted input (FEEDBACK.md).
 The app shell (HTML/JS/CSS) carries no data and is served without the token.
 """
 import sys
@@ -411,14 +413,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if verb == "POST" and sub == "/markup":
                 return self.save_markup(issue_id, body)
             if verb == "POST" and sub == "/handoff":
-                target = body.get("target")
+                target, agent = body.get("target"), body.get("agent")
                 if target not in ("rix", "agent", "author"):
                     return self.err(400, "target must be rix, agent or author")
-                p = subprocess.run([CLI, "handoff", "request", target, str(issue_id), "--json"],
-                                   capture_output=True, text=True, timeout=30)
+                argv = [CLI, "handoff", target, str(issue_id)]
+                if agent is not None:
+                    if target != "agent" or not isinstance(agent, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", agent):
+                        return self.err(400, "agent must be an agent name, with target agent")
+                    argv += ["--agent", agent]
+                # A first hand-off of a plugin issue may clone its repository into ~/Work.
+                try:
+                    p = subprocess.run(argv + ["--json"], capture_output=True, text=True, timeout=180)
+                except subprocess.TimeoutExpired:
+                    return self.err(504, "the hand-off took too long")
                 if p.returncode != 0:
-                    return self.err(500, (p.stderr.strip() or "hand-off request failed")[-300:])
-                return self.send(200, json.loads(p.stdout.strip().splitlines()[-1]))
+                    lines = p.stderr.strip().splitlines()
+                    msg = lines[-1].removeprefix("omarchy-feedback: ") if lines else "the hand-off failed"
+                    return self.err(500, msg[-300:])
+                return self.send(200, self.issue_payload(issue_id))
         except SystemExit as e:  # of_db validation errors
             return self.err(400, str(e))
         return self.err(405, "method not allowed")
@@ -450,8 +462,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def api_get(self, path, q):
         if path == "/api/handoff-targets":
-            # Read-only: what each hand-off can reach right now, and where to get Rix if it is
-            # missing. The CLI owns the answer so the panel, the viewer and the CLI agree.
+            # Read-only: what each hand-off can reach right now (Rix installed or not, the
+            # installed coding agents). The CLI owns the answer so the panel, the viewer and the CLI agree.
             try:
                 p = subprocess.run([CLI, "handoff", "targets", "--json"], capture_output=True, text=True, timeout=20)
                 return self.send(200, json.loads(p.stdout.strip().splitlines()[-1]))

@@ -9,10 +9,10 @@ import qs.Ui
 // (FeedbackWindow.qml): the same data, actions and layout in both. The host decides what "leaving"
 // means: the popup closes before a terminal or the viewer opens; the window stays put.
 //
-// Everything shown comes from the CLI as JSON (list, handoff targets, handoff pending); every
-// action is a fixed argv through Util.execArgv, so nothing read from disk reaches a shell as
-// code. Hand-offs started here run directly: the click is the confirmation. Requests made in
-// the web viewer show up under "Waiting for you" and run only after Confirm.
+// Everything shown comes from the CLI as JSON (list, handoff targets); every action is a fixed
+// argv through Util.execArgv, so nothing read from disk reaches a shell as code. Hand-offs run
+// as soon as the button is pressed: no confirmation, no notification. Where an issue last went,
+// or why it was not sent, shows under it.
 Item {
   id: root
 
@@ -32,12 +32,24 @@ Item {
   readonly property string runtimeDir: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-feedback"
   implicitHeight: column.implicitHeight
 
-  onActiveChanged: if (active) { load(); checkUpdates() }
+  onActiveChanged: if (active) { load(); checkUpdates(); themeColors.reload() }
+
+  // Rix in the theme's green (the shell's palette has none), toned to a medium green the way the
+  // viewer does it. Re-read when the panel opens, so a theme switch shows up.
+  property color themeGreen: "#98c379"
+  readonly property color rixGreen: Qt.tint(themeGreen, Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.15))
+  FileView {
+    id: themeColors
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    printErrors: false
+    onLoaded: {
+      var m = /^\s*green\s*=\s*"(#[0-9A-Fa-f]{6})"/m.exec(text())
+      if (m) root.themeGreen = m[1]
+    }
+  }
 
   property var issues: []
   property var targets: null
-  property bool showGetRix: false   // the "Get Rix" card: Singularix is not installed
-  property var pending: []
   property string filter: "open"
   property bool loading: false
   property string error: ""
@@ -128,7 +140,6 @@ Item {
       listProc.running = true
     }
     if (!targetsProc.running) targetsProc.running = true
-    if (!pendingProc.running) pendingProc.running = true
   }
   Process {
     id: listProc
@@ -146,12 +157,6 @@ Item {
     stdout: StdioCollector { id: targetsOut; waitForEnd: true }
     onExited: function(code) { try { root.targets = JSON.parse(targetsOut.text) } catch (e) { root.targets = null } }
   }
-  Process {
-    id: pendingProc
-    command: [root.cli, "handoff", "pending", "--json"]
-    stdout: StdioCollector { id: pendingOut; waitForEnd: true }
-    onExited: function(code) { try { root.pending = JSON.parse(pendingOut.text) } catch (e) { root.pending = [] } }
-  }
   Timer { interval: 10000; running: root.active; repeat: true; onTriggered: root.load() }
   Timer { id: reloadSoon; interval: 1200; onTriggered: root.load() }
 
@@ -163,8 +168,24 @@ Item {
   function available(target) {
     return root.targets && root.targets[target] && root.targets[target].available === true
   }
-  // What to show instead of a dead Rix button: where to get Singularix, and why (from the CLI).
-  readonly property var rixInstall: root.targets && root.targets.rix && root.targets.rix.install ? root.targets.rix.install : null
+  readonly property bool rixInstalled: !!root.targets && !!root.targets.rix && root.targets.rix.installed === true
+  // Installed coding agents, the default first (from the CLI).
+  readonly property var agents: root.targets && root.targets.agent && root.targets.agent.agents ? root.targets.agent.agents : []
+  function sendToAgent(issueId, agentId) {
+    root.leave(); root.act([root.cli, "handoff", "agent", String(issueId), "--agent", agentId])
+  }
+  // The author button says where the report goes: a GitHub issue to review and submit, or the
+  // project's own page with the report on the clipboard.
+  function githubRepo(url) {
+    var m = /^https:\/\/github\.com\/([^\/]+\/[^\/]+)$/.exec(url || "")
+    return m ? m[1] : ""
+  }
+  function lastHandoffText(h) {
+    if (!h) return ""
+    var where = h.target === "rix" ? "Rix" : (h.target === "author" ? "the author" : "a coding agent")
+    if (h.status === "failed") return "Not sent: " + (h.result || "the hand-off failed")
+    return "Sent " + root.ago(h.at) + (h.result ? ": " + h.result : " to " + where)
+  }
   function reason(target) {
     return root.targets && root.targets[target] ? (root.targets[target].reason || "") : "checking…"
   }
@@ -301,75 +322,6 @@ Item {
             }
           }
 
-          // Rix lives in Singularix; when it is missing, the Rix button opens this instead.
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-            visible: root.showGetRix && root.rixInstall !== null
-            PanelSeparator { width: parent.width }
-            Row {
-              width: parent.width
-              PanelSectionHeader { width: parent.width - hideGetRix.width; text: root.rixInstall ? root.rixInstall.headline : "" }
-              Button { id: hideGetRix; text: "Hide"; foreground: root.dim; fontFamily: root.fontFamily
-                       onClicked: root.showGetRix = false }
-            }
-            Text {
-              width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
-              color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body
-              text: root.rixInstall ? root.rixInstall.lead : ""
-            }
-            Repeater {
-              model: root.rixInstall ? root.rixInstall.bullets : []
-              delegate: Text {
-                required property var modelData
-                width: root.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
-                color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-                text: "•  " + modelData
-              }
-            }
-            Flow {
-              width: parent.width
-              spacing: Style.space(4)
-              // Every action goes through the plugin's own CLI (fixed argv), never a bare command.
-              Button { text: "GitHub"; iconText: "󰊤"; foreground: Color.accent; fontFamily: root.fontFamily
-                       tooltipText: root.rixInstall ? root.rixInstall.repo : ""
-                       onClicked: { root.leave(); Util.execArgv([root.cli, "get-singularix", "repo"]) } }
-              Button { text: "Marketplace"; iconText: "󰏗"; foreground: root.foreground; fontFamily: root.fontFamily
-                       tooltipText: root.rixInstall ? root.rixInstall.marketplace : ""
-                       onClicked: { root.leave(); Util.execArgv([root.cli, "get-singularix", "marketplace"]) } }
-              Button { text: "Copy install command"; iconText: "󰆏"; foreground: root.foreground; fontFamily: root.fontFamily
-                       tooltipText: root.rixInstall ? root.rixInstall.command : ""
-                       onClicked: Util.execArgv([root.cli, "get-singularix", "copy"]) }
-            }
-          }
-
-          // Requests made in the web viewer wait here (and in a notification).
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-            visible: root.pending.length > 0
-            PanelSeparator { width: parent.width }
-            PanelSectionHeader { width: parent.width; text: "Waiting for you" }
-            Repeater {
-              model: root.pending
-              delegate: Row {
-                required property var modelData
-                spacing: Style.space(6)
-                Text {
-                  width: root.width - confirmBtn.width - declineBtn.width - Style.space(12)
-                  anchors.verticalCenter: parent.verticalCenter
-                  elide: Text.ElideRight; textFormat: Text.PlainText
-                  color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-                  text: "Send #" + modelData.issue_id + " to " + (modelData.target === "rix" ? "Rix" : (modelData.target === "agent" ? "your coding agent" : "the author")) + ": " + modelData.title
-                }
-                Button { id: confirmBtn; text: "Confirm"; foreground: Color.accent; fontFamily: root.fontFamily
-                         onClicked: root.act([root.cli, "handoff", "confirm", String(modelData.id)]) }
-                Button { id: declineBtn; text: "Decline"; foreground: root.dim; fontFamily: root.fontFamily
-                         onClicked: root.act([root.cli, "handoff", "decline", String(modelData.id)]) }
-              }
-            }
-          }
-
           PanelSeparator { width: parent.width }
           Row {
             spacing: Style.space(6)
@@ -392,6 +344,7 @@ Item {
             delegate: Column {
               id: row
               required property var modelData
+              property bool pickingAgent: false
               width: root.width
               spacing: Style.space(3)
 
@@ -430,7 +383,6 @@ Item {
                 text: root.subjectText(row.modelData)
                   + (row.modelData.attachment_kinds.indexOf("replay") >= 0 ? " · replay" : "")
                   + " · " + row.modelData.event_count + " events"
-                  + (row.modelData.pending_handoffs > 0 ? " · waiting for you" : "")
               }
               Text {
                 visible: row.modelData.secrets_open > 0
@@ -448,28 +400,44 @@ Item {
                   onClicked: { root.leave(); Util.execArgv([root.cli, "open", String(row.modelData.id)]) }
                 }
                 Button {
+                  visible: root.rixInstalled
                   text: "Rix"; iconText: "󱚝"; fontFamily: root.fontFamily
-                  foreground: root.available("rix") ? root.foreground : (root.rixInstall ? Color.accent : root.dim)
-                  tooltipText: root.available("rix") ? "Rix triages it and a worker agent in Singularix starts on the fix"
-                    : (root.rixInstall ? "Rix lives in Singularix: see what it does and where to get it" : root.reason("rix"))
+                  foreground: root.available("rix") ? root.rixGreen : root.dim
+                  tooltipText: root.available("rix") ? "Rix triages it and a worker agent in Singularix starts on the fix" : root.reason("rix")
+                  onClicked: if (root.available("rix")) root.act([root.cli, "handoff", "rix", String(row.modelData.id)])
+                }
+                Button {
+                  // Without Singularix the Rix button is the free upgrade: the pitch is its tooltip,
+                  // a click opens Singularix on GitHub.
+                  readonly property var inst: root.targets && root.targets.rix ? root.targets.rix.install : null
+                  visible: !root.rixInstalled && !!inst
+                  text: inst && inst.button ? inst.button : "Get Rix: free upgrade"
+                  iconText: "󱚝"; fontFamily: root.fontFamily; foreground: root.rixGreen
+                  tooltipText: inst ? inst.headline + "\n\n" + inst.lead + "\n\n" + inst.bullets.map(function(b) { return "• " + b }).join("\n") : ""
+                  onClicked: { root.leave(); Util.execArgv([root.cli, "get-singularix", "repo"]) }
+                }
+                Button {
+                  // One agent: a click sends it there. Several: a click shows them to pick from.
+                  text: root.agents.length === 1 ? root.agents[0].label : (root.agents.length > 1 ? "Coding agent ▾" : "Coding agent")
+                  iconText: "󰘦"; fontFamily: root.fontFamily
+                  foreground: root.agents.length > 0 ? root.foreground : root.dim
+                  tooltipText: root.agents.length > 1 ? "Pick the agent to open in the project folder with this issue"
+                    : (root.agents.length === 1 ? "Open " + root.agents[0].label + " in the project folder with this issue" : root.reason("agent"))
                   onClicked: {
-                    if (root.available("rix")) root.act([root.cli, "handoff", "rix", String(row.modelData.id)])
-                    else if (root.rixInstall) root.showGetRix = true
+                    if (root.agents.length === 1) root.sendToAgent(row.modelData.id, root.agents[0].id)
+                    else if (root.agents.length > 1) row.pickingAgent = !row.pickingAgent
                   }
                 }
                 Button {
-                  text: root.targets && root.targets.agent && root.targets.agent.name ? root.targets.agent.name : "Coding agent"
-                  iconText: "󰘦"; fontFamily: root.fontFamily
-                  foreground: root.available("agent") ? root.foreground : root.dim
-                  tooltipText: root.available("agent") ? "Open your coding agent in the project folder with this issue" : root.reason("agent")
-                  onClicked: if (root.available("agent")) { root.leave(); root.act([root.cli, "handoff", "agent", String(row.modelData.id)]) }
-                }
-                Button {
                   readonly property bool ok: row.modelData.repo_url && !(row.modelData.secrets_open > 0)
-                  text: "Author"; iconText: "󰊤"; fontFamily: root.fontFamily
+                  readonly property string repo: root.githubRepo(row.modelData.repo_url)
+                  text: repo !== "" || !row.modelData.repo_url ? "Report on GitHub" : "Report to author"
+                  iconText: "󰊤"; fontFamily: root.fontFamily
                   foreground: ok ? root.foreground : root.dim
                   tooltipText: row.modelData.secrets_open > 0 ? "Rotate the captured secret and mark it rotated before sending this anywhere public"
-                    : (row.modelData.repo_url ? "Open a prefilled issue at " + row.modelData.repo_url + " (you review and submit)" : "No project link for this subject")
+                    : (repo !== "" ? "Open a prefilled issue on " + repo + " for the author to review. You check it and press Submit."
+                    : (row.modelData.repo_url ? "Copy the report and open " + row.modelData.repo_url + " to paste it where the author takes reports"
+                    : "No project link for this subject"))
                   onClicked: if (ok) { root.leave(); root.act([root.cli, "handoff", "author", String(row.modelData.id)]) }
                 }
                 Button {
@@ -507,6 +475,27 @@ Item {
                   text: ""; iconText: "󰆴"; tooltipText: "Delete this issue and its files"; foreground: root.dim; fontFamily: root.fontFamily
                   onClicked: { root.deleteId = row.modelData.id; deleteDialog.opened = true }
                 }
+              }
+              Flow {
+                visible: row.pickingAgent
+                width: parent.width
+                spacing: Style.space(4)
+                Repeater {
+                  model: root.agents
+                  delegate: Button {
+                    required property var modelData
+                    text: modelData.label + (modelData.default ? " (default)" : "")
+                    iconText: "󰘦"; foreground: root.foreground; fontFamily: root.fontFamily
+                    onClicked: { row.pickingAgent = false; root.sendToAgent(row.modelData.id, modelData.id) }
+                  }
+                }
+              }
+              Text {
+                visible: !!row.modelData.last_handoff
+                width: parent.width; elide: Text.ElideRight; textFormat: Text.PlainText
+                color: row.modelData.last_handoff && row.modelData.last_handoff.status === "failed" ? Color.urgent : root.dim
+                font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                text: root.lastHandoffText(row.modelData.last_handoff)
               }
               PanelSeparator { width: parent.width; strength: 0.06 }
             }

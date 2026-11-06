@@ -3,6 +3,11 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.8.0
+
+- Installing the plugin now sets everything up: the first time the bar chip loads it adds SUPER + ALT + B, the omarchy-feedback command, the menu section and the web app (once; never replaces your own bindings)
+- `omarchy-feedback setup` runs it again; `"auto_setup": false` in config.json turns it off
+
 ## 0.7.1
 
 - The Feedback window opens: its file was renamed so Qt no longer confuses it with its own Window type

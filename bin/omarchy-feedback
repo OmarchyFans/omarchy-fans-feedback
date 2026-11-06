@@ -32,6 +32,9 @@
 #   omarchy-feedback daemon ensure|status|stop|restart
 #   omarchy-feedback snap <file> [minutes]   copy the last N minutes of events into a file
 #
+# Setup (the bar chip runs `setup --auto` once after `omarchy plugin add`):
+#   omarchy-feedback setup [--auto]          command link, SUPER + ALT + B, menu section, web app
+#
 # Updates (see docs/update-alerts.md):
 #   omarchy-feedback update-check [VERSION] [--force]   is a newer version published? (JSON, cached 6 h)
 #   omarchy-feedback update-dismiss <version>           stop offering that version
@@ -63,6 +66,7 @@ source "$OF_LIB/capture.sh"
 source "$OF_LIB/issues.sh"
 source "$OF_LIB/handoff.sh"
 source "$OF_LIB/viewer.sh"
+source "$OF_LIB/setup.sh"
 # shellcheck source=/dev/null
 [[ -n ${OF_UI_STUBS:-} && $OF_UI_STUBS == "$OF_ROOT/tests/ui-stubs.sh" ]] && source "$OF_UI_STUBS"
 
@@ -102,6 +106,7 @@ case "$cmd" in
   pause)  cmd_pause ;;
   resume) cmd_resume ;;
   snap)   cmd_snap "$@" ;;
+  setup)  cmd_setup "$@" ;;
   update-check)   exec bash "$OF_LIB/update.sh" check "$@" ;;
   update-dismiss) exec bash "$OF_LIB/update.sh" dismiss "$@" ;;
   update-run)     exec env OMARCHY_PLUGIN_UPDATE_PRINT="${OMARCHY_PLUGIN_UPDATE_PRINT:-${OF_DRY_RUN:-0}}" bash "$OF_LIB/update.sh" run "$@" ;;

@@ -68,13 +68,16 @@ screenshots and logs never leave the machine unless you send them.
 
 ```
 omarchy plugin add https://github.com/OmarchyFans/omarchy-fans-feedback --enable
-~/.config/omarchy/plugins/fans.omarchy.feedback/install.sh
-omarchy restart shell
 ```
 
-`install.sh` asks before each step: the `omarchy-feedback` command on your PATH,
-the SUPER + ALT + B keybinding (it never replaces an existing binding), a Feedback
-section in the Omarchy menu, and the viewer as an installed web app.
+The first time the bar chip loads, it sets up the rest by itself, once: the
+`omarchy-feedback` command on your PATH, the SUPER + ALT + B keybinding (it never
+replaces an existing binding), a Feedback section in the Omarchy menu, and the
+viewer as an installed web app. A notification says when it is done; the log is in
+`~/.local/state/omarchy-feedback/setup.log`. If you remove one of them later, it
+stays removed. To skip this, put `"auto_setup": false` in
+`~/.config/omarchy-feedback/config.json` before enabling the chip. To run it again
+(asking before each step): `~/.config/omarchy/plugins/fans.omarchy.feedback/install.sh`.
 ### Updates
 
 About once every six hours, when the popup opens, it fetches this repository's

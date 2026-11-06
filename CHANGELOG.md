@@ -3,6 +3,10 @@
 The bar popup reads the newest sections of this file to tell you what changed
 when an update is available. Keep one short line per bullet.
 
+## 0.9.1
+
+- A coding agent started from Feedback is a normal session again: it saves its transcript and the left arrow goes back to the dashboard (it had inherited the session markers of whatever Claude Code session last started the recorder)
+
 ## 0.9.0
 
 - Pick the coding agent: the button offers every installed agent, your default first

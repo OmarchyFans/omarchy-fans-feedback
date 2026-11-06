@@ -55,6 +55,15 @@ set -uo pipefail
 OF_USER_PATH=${PATH:-}
 PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin
 export PATH
+# Started from inside a Claude Code session (a terminal tab, or an agent's shell), this
+# process inherits that session's markers. Everything Feedback starts would pass them on:
+# the recorder keeps them for its whole life, and a coding agent it launches then believes
+# it is that session's child (no transcript saving, no way back to the dashboard) and holds
+# the parent's messaging token. Drop the session markers; Claude Code settings such as
+# CLAUDE_CODE_USE_BEDROCK or CLAUDE_CONFIG_DIR are the user's and pass through.
+unset CLAUDECODE CLAUDE_PID CLAUDE_EFFORT CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH \
+  CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID CLAUDE_CODE_SESSION_ATTENDED \
+  CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
 OF_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 OF_ROOT="$(cd -- "$(dirname -- "$OF_SELF")/.." && pwd)"
 [[ -n ${OF_TEST_STUBS:-} && $OF_TEST_STUBS == "$OF_ROOT/tests/stubs" ]] && PATH="$OF_TEST_STUBS:$PATH"

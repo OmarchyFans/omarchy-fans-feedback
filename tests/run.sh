@@ -577,6 +577,19 @@ if want install; then
     && ! grep -q '"feedback' "$M" && grep -q '"agents"' "$M" && grep -q "Claude profile" "$HOME/.config/hypr/bindings.lua" || tfail "uninstall left entries or removed others"
   python3 -c "import json,re,sys; s=open(sys.argv[1]).read(); json.loads(re.sub(r'^\s*//.*$', '', s, flags=re.M))" "$M" || tfail "menu invalid after uninstall: $(cat "$M")"
   pass "idempotent install, no clobbering, clean uninstall (web app launcher only if ours)"
+  # setup --auto: what the bar chip runs on load, since `omarchy plugin add` has no install hook.
+  HOME3="$T/home3"; mkdir -p "$HOME3/.config/hypr"; : >"$HOME3/.config/hypr/bindings.lua"
+  S3="$T/state3"
+  HOME="$HOME3" OF_STATE="$S3" "$B" setup --auto || tfail "setup --auto"
+  [[ -L $HOME3/.local/bin/omarchy-feedback && -f $S3/setup-done ]] && grep -q 'fans.omarchy.feedback' "$HOME3/.config/hypr/bindings.lua" \
+    && grep -q '"feedback.report"' "$HOME3/.config/omarchy/extensions/omarchy-menu.jsonc" || tfail "setup --auto did not install the extras: $(cat "$S3/setup.log" 2>/dev/null)"
+  rm -f "$HOME3/.local/bin/omarchy-feedback"
+  HOME="$HOME3" OF_STATE="$S3" "$B" setup --auto || tfail "setup --auto second run"
+  [[ ! -e $HOME3/.local/bin/omarchy-feedback ]] || tfail "setup --auto ran again after the first time"
+  HOME4="$T/home4"; mkdir -p "$HOME4/.config/omarchy-feedback"; echo '{"auto_setup": false}' >"$HOME4/.config/omarchy-feedback/config.json"
+  HOME="$HOME4" XDG_CONFIG_HOME="$HOME4/.config" OF_STATE="$T/state4" "$B" setup --auto || tfail "setup --auto with auto_setup off"
+  [[ ! -e $HOME4/.local/bin/omarchy-feedback && ! -e $T/state4/setup-done ]] || tfail '"auto_setup": false was ignored'
+  pass "setup --auto installs the extras once, and not at all when turned off"
 fi
 
 echo "== tree: no symlinks, no __pycache__, manifest"

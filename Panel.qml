@@ -27,7 +27,12 @@ Panel {
   implicitHeight: button.implicitHeight
 
   function ensureDaemon() { Util.execArgv([root.cli, "daemon", "ensure"]) }
-  Component.onCompleted: ensureDaemon()
+  // `omarchy plugin add` has no install hook, so the first load installs the extras
+  // (install.sh --yes, once; see lib/setup.sh). "auto_setup": false turns it off.
+  Component.onCompleted: {
+    ensureDaemon()
+    if (root.setting("auto_setup", true) !== false) Util.execArgv([root.cli, "setup", "--auto"])
+  }
   Timer { interval: 30000; running: true; repeat: true; onTriggered: root.ensureDaemon() }
 
   function capture(source) {

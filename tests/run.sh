@@ -75,7 +75,12 @@ fi
 if want daemon; then
   echo "== daemon: ensure, events, keys, lock pause, snapshot, pause/resume, stop"
   start_fakehypr
-  "$B" daemon ensure || tfail "daemon ensure"
+  # Started from inside a Claude Code session: the recorder (and every agent it launches) must not inherit its markers.
+  CLAUDECODE=1 CLAUDE_CODE_CHILD_SESSION=1 CLAUDE_CODE_SESSION_ID=parent CLAUDE_CODE_MESSAGING_TOKEN=secret CLAUDE_CODE_USE_BEDROCK=1 \
+    "$B" daemon ensure || tfail "daemon ensure"
+  denv=$(tr '\0' '\n' </proc/"$(pgrep -f "^python3 $ROOT/lib/feedbackd.py" | head -1)"/environ)
+  ! grep -qE '^(CLAUDECODE|CLAUDE_CODE_CHILD_SESSION|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_MESSAGING_TOKEN)=' <<<"$denv" \
+    && grep -q '^CLAUDE_CODE_USE_BEDROCK=1$' <<<"$denv" || tfail "the recorder inherited Claude Code session markers"
   "$B" daemon ensure || tfail "second ensure must be a no-op"
   [[ $(pgrep -fc "^python3 $ROOT/lib/feedbackd.py") == 1 ]] || tfail "exactly one daemon expected, got $(pgrep -fc "^python3 $ROOT/lib/feedbackd.py")"
   st=$("$B" daemon status) || tfail "status"
